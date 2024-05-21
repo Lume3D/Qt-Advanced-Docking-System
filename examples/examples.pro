@@ -8,4 +8,5 @@ SUBDIRS = \
 	sidebar \
 	deleteonclose \
 	emptydockarea \
-	dockindock
+	dockindock \
+	configflags
