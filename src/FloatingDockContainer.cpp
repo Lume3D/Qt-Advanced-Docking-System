@@ -770,6 +770,12 @@ CFloatingDockContainer::CFloatingDockContainer(CDockWidget *DockWidget) :
     }
 
     d->DockManager->notifyWidgetOrAreaRelocation(DockWidget);
+
+	const auto Features = DockWidget->features();
+	if (Features.testFlag(CDockWidget::DockWidgetFeature::ParentlessFloating))
+	{
+		setParent(nullptr);
+	}
 }
 
 
