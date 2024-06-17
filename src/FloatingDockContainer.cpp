@@ -721,11 +721,18 @@ CFloatingDockContainer::CFloatingDockContainer(CDockManager *DockManager) :
 #else
 	setWindowFlags(
 	    Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint);
+
 	QBoxLayout *l = new QBoxLayout(QBoxLayout::TopToBottom);
 	l->setContentsMargins(0, 0, 0, 0);
 	l->setSpacing(0);
-	setLayout(l);
 	l->addWidget(d->DockContainer);
+#if defined(ADS_FLOATING_MAINWINDOW)
+	QWidget* CentralWidget = new QWidget();
+	CentralWidget->setLayout(l);
+	setCentralWidget(CentralWidget);
+#else
+	setLayout(l);
+#endif
 #endif
 
 	DockManager->registerFloatingWidget(this);
