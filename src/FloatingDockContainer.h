@@ -37,8 +37,13 @@
 #include <QDockWidget>
 #define tFloatingWidgetBase QDockWidget
 #else
-#include <QWidget>
-#define tFloatingWidgetBase QWidget
+#  if defined(ADS_FLOATING_MAINWINDOW)
+#    include <QMainWindow>
+#    define tFloatingWidgetBase QMainWindow   
+#  else
+#    include <QWidget>
+#    define tFloatingWidgetBase QWidget
+#  endif
 #endif
 
 class CDockingStateReader;
