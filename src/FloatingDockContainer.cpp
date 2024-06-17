@@ -895,6 +895,15 @@ bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *mess
 			 if (msg->wParam == HTCAPTION && d->isState(DraggingInactive))
 			 {
 				ADS_PRINT("CFloatingDockContainer::nativeEvent WM_NCLBUTTONDOWN");
+				const auto Config = d->DockManager->configFlags();
+				if (Config.testFlag(CDockManager::eConfigFlag::UseShiftDocking))
+				{
+					const bool ShiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0x8000;
+					if (!ShiftDown)
+					{
+						break;
+					}
+				}
 				d->DragStartPos = pos();
 				d->setState(DraggingMousePressed);
 			 }
