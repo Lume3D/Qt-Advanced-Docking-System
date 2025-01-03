@@ -719,8 +719,14 @@ CFloatingDockContainer::CFloatingDockContainer(CDockManager *DockManager) :
 				this, &CFloatingDockContainer::onMaximizeRequest);
 	}
 #else
-	setWindowFlags(
-	    Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint);
+
+	auto env = qgetenv("ADS_LUME_UseCustomWindowFrame").toUpper();
+	if (env == "1") {
+		// Using custom window frame
+	} else {
+		setWindowFlags(
+		    Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint);
+	}
 
 	QBoxLayout *l = new QBoxLayout(QBoxLayout::TopToBottom);
 	l->setContentsMargins(0, 0, 0, 0);
@@ -878,7 +884,6 @@ bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *mess
 bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
 #endif
 {
-	QWidget::nativeEvent(eventType, message, result);
 	MSG *msg = static_cast<MSG*>(message);
 	switch (msg->message)
 	{
@@ -937,7 +942,7 @@ bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *mess
 			 }
 			 break;
 	}
-	return false;
+    return StyledWindow::nativeEvent(eventType, message, result);
 }
 #endif
 

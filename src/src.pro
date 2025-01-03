@@ -30,6 +30,9 @@ windows {
 RESOURCES += ads.qrc
 
 HEADERS += \
+    customwidgets/window/styled_window.h \
+    customwidgets/window/utils.h \
+    customwidgets/window/widget_event_helper.h \
     ads_globals.h \
     DockAreaWidget.h \
     DockAreaTabBar.h \
@@ -56,6 +59,8 @@ HEADERS += \
 
 
 SOURCES += \
+    customwidgets/window/styled_window.cpp \
+    customwidgets/window/widget_event_helper.cpp \
     ads_globals.cpp \
     DockAreaWidget.cpp \
     DockAreaTabBar.cpp \

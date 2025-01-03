@@ -45,6 +45,8 @@ set(ads_SRCS
     AutoHideDockContainer.cpp
     PushButton.cpp
     ResizeHandle.cpp
+    customwidgets/window/styled_window.cpp
+    customwidgets/window/widget_event_helper.cpp
     ads.qrc
 )
 set(ads_HEADERS
@@ -71,6 +73,9 @@ set(ads_HEADERS
     AutoHideDockContainer.h
     PushButton.h
     ResizeHandle.h
+    customwidgets/window/styled_window.h
+    customwidgets/window/utils.h
+    customwidgets/window/widget_event_helper.h
 )
 add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
 if (UNIX AND NOT APPLE)
