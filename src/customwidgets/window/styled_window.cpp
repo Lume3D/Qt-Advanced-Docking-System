@@ -234,11 +234,11 @@ void StyledWindow::initWindowTitle()
 {
     leftLayoutWidget_ = new QWidget();
     rightLayoutWidget_ = new QWidget();
-    leftLayoutWidget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    leftLayoutWidget_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Expanding);
     rightLayoutWidget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     auto leftLayout = new QHBoxLayout(leftLayoutWidget_);
-    leftLayout->setContentsMargins(8, 0, 0, 0);
+    leftLayout->setContentsMargins(8, 0, 8, 0);
     leftLayout->setAlignment(Qt::AlignLeft);
 
     auto rightLayout = new QHBoxLayout(rightLayoutWidget_);
