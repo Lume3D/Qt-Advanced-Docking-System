@@ -1,28 +1,43 @@
-#ifndef FRAME_LESS_H
-#define FRAME_LESS_H
+#ifndef ADS_FRAME_LESS_H
+#define ADS_FRAME_LESS_H
 
 #include <QMainWindow>
-#include <QList>
 
+#include "ads_globals.h"
+
+class QMenu;
 class QLabel;
 class QPushButton;
 class QWidget;
 class QHBoxLayout;
 class WidgetEventHelper;
 
-#define DEFAULT_WINDOW_TITLE ""
+namespace ads
+{
+class ADS_EXPORT IStyledWindow
+{
+public:
+    virtual void setupMenuBar(QMenuBar* menu) = 0;
+    virtual QMenuBar* menuBar() = 0;
 
-class StyledWindow : public QMainWindow {
+protected:
+    ~IStyledWindow() = default;
+};
+
+class ADS_EXPORT StyledWindow : public QMainWindow, public IStyledWindow
+{
     Q_OBJECT
 
 public:
-    explicit StyledWindow(
-        QWidget* parent = 0, Qt::WindowFlags f = Qt::WindowFlags(), QString windowTitle = DEFAULT_WINDOW_TITLE);
+    explicit StyledWindow(QWidget* parent = 0,
+                          Qt::WindowFlags f = Qt::WindowFlags(),
+                          QString windowTitle = "");
     ~StyledWindow();
 
     void init();
     void setWindowTitle(QString title);
-    void setupMenuBar(QMenuBar* menuBar);
+    void setupMenuBar(QMenuBar* menuBar) override;
+    QMenuBar* menuBar() override;
 
 #ifdef WIN32
 public slots:
@@ -39,7 +54,8 @@ protected:
     void setContentsMargins(int left, int top, int right, int bottom);
     void constructHintButtons();
 
-    bool nativeEvent(const QByteArray& eventType, void* message, long* result) override;
+    bool nativeEvent(const QByteArray& eventType, void* message,
+                     long* result) override;
     void resizeEvent(QResizeEvent* event) override;
     void moveEvent(QMoveEvent* event) override;
     void showEvent(QShowEvent* event) override;
@@ -51,32 +67,11 @@ private slots:
     void onTitleBarDestroyed();
 
 private:
-    QWidget* leftLayoutWidget_{ nullptr };
-    QWidget* rightLayoutWidget_{ nullptr };
-    QScreen* currentScreen_{ nullptr };
-    QPushButton* maximize_{ nullptr };
-    QPushButton* minimize_{ nullptr };
-    QPushButton* close_{ nullptr };
-    QMenuBar* menuBar_{ nullptr };
-    QToolBar* windowHint_{ nullptr };
-    QLabel* titleLabel_{ nullptr };
-    QString windowTitle_{ "" };
+    struct StyledWindowPrivate;
+    StyledWindowPrivate* d;
 
-    QWidget* titleBar_{ nullptr };
-    QList<QWidget*> whiteList_;
-    QMargins margins_;
-    QMargins nativeMargins_;
-    QMargins frames_;
-
-    int borderWidth_{ 0 };
-    bool justMaximized_{ false };
-    bool justMinimized_{ false };
-    bool resizeable_{ true };
-
-    WidgetEventHelper* maximizeHelper_{ nullptr };
-    WidgetEventHelper* minimizeHelper_{ nullptr };
-    WidgetEventHelper* closeHelper_{ nullptr };
-    float displayScale_{ 1.f };
 #endif
 };
-#endif // FRAME_LESS_H
+
+}  // namespace ads
+#endif  // ADS_FRAME_LESS_H
