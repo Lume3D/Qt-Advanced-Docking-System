@@ -1,5 +1,5 @@
-#ifndef WIN32_EVENT_UTILS
-#define WIN32_EVENT_UTILS
+#ifndef ADS_WIN32_EVENT_UTILS
+#define ADS_WIN32_EVENT_UTILS
 
 #ifdef WIN32
 
@@ -24,7 +24,7 @@
 #include <QVBoxLayout>
 
 constexpr int CUSTOM_FRAME_THICKNESS = 1;
-constexpr int TITLE_BAR_HEIGHT = 33;
+constexpr int TITLE_BAR_HEIGHT = 32;
 #define W_10 (QSysInfo::productVersion().contains("10") && QOperatingSystemVersion::current().microVersion() < 21327)
 const QString CUSTOM_FRAME_STYLE_ENABLE =
     QString::fromStdString("{ border: " + std::to_string(CUSTOM_FRAME_THICKNESS) + "px solid #242424 }");

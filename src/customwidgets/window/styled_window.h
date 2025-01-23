@@ -1,5 +1,5 @@
-#ifndef FRAME_LESS_H
-#define FRAME_LESS_H
+#ifndef ADS_FRAME_LESS_H
+#define ADS_FRAME_LESS_H
 
 #include <QMainWindow>
 #include <QList>
@@ -87,6 +87,6 @@ private:
     float displayScale_{ 1.f };
 #endif
 };
-#endif // FRAME_LESS_H
+#endif // ADS_FRAME_LESS_H
  
 } // ads
