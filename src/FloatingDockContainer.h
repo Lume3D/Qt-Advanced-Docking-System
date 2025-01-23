@@ -38,8 +38,13 @@
 #define tFloatingWidgetBase QDockWidget
 #else
 #  if defined(ADS_FLOATING_MAINWINDOW)
-#    include "customwidgets/window/styled_window.h"
-#    define tFloatingWidgetBase StyledWindow
+#    if defined(ADS_STYLED_WINDOW)
+#      include "customwidgets/window/styled_window.h"
+#      define tFloatingWidgetBase StyledWindow
+#    else
+#      include <QMainWindow>
+#      define tFloatingWidgetBase QMainWindow
+#    endif
 #  else
 #    include <QWidget>
 #    define tFloatingWidgetBase QWidget

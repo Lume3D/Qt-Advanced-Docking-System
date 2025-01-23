@@ -1,5 +1,5 @@
-#ifndef QWIDGET_EVENT_HELPER_H
-#define QWIDGET_EVENT_HELPER_H
+#ifndef ADS_QWIDGET_EVENT_HELPER_H
+#define ADS_QWIDGET_EVENT_HELPER_H
 
 #include <QObject>
 
@@ -43,4 +43,4 @@ private:
     bool firstMove_{ false };
 };
 
-#endif // BUTTON_HELPER_H
+#endif // ADS_QWIDGET_EVENT_HELPER_H
