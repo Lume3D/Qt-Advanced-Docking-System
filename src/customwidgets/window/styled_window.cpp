@@ -6,9 +6,12 @@
 #    include "widget_event_helper.h"
 #endif
 
-namespace ads {
+namespace ads
+{
 
-StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f, QString windowTitle) : QMainWindow(parent, f)
+StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
+                           QString windowTitle)
+    : QMainWindow(parent, f)
 {
 #ifdef WIN32
     windowTitle_ = windowTitle;
@@ -313,6 +316,7 @@ void StyledWindow::initWindowTitle()
     windowHint_->addWidget(leftLayoutWidget_);
 
     titleLabel_ = new QLabel(this);
+    titleLabel_->setWordWrap(false);
     titleLabel_->setText(windowTitle_);
     auto font = titleLabel_->font();
     font.setWeight(font.Bold);
@@ -925,4 +929,4 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     }
 }
 #endif
-} // ads
+}  // namespace ads
