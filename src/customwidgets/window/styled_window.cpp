@@ -8,6 +8,8 @@
 
 #define TITLE_BAR_HEIGHT 32
 
+namespace ads {
+
 StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f, QString windowTitle) : QMainWindow(parent, f)
 {
 #ifdef WIN32
@@ -739,3 +741,4 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message, long*
     }
 }
 #endif
+} // ads

@@ -45,6 +45,7 @@
 #include "DockManager.h"
 #include "DockWidget.h"
 #include "DockOverlay.h"
+#include "customwidgets/window/styled_window.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -937,7 +938,10 @@ bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *mess
 			 }
 			 break;
 	}
+#if defined(ADS_FLOATING_MAINWINDOW)
     return StyledWindow::nativeEvent(eventType, message, result);
+#endif
+	return false;
 }
 #endif
 

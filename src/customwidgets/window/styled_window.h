@@ -12,7 +12,15 @@ class WidgetEventHelper;
 
 #define DEFAULT_WINDOW_TITLE ""
 
-class StyledWindow : public QMainWindow {
+namespace ads {
+class IStyledWindow {
+public:
+	virtual void setupMenuBar(QMenuBar* menu) = 0;
+protected:
+	~IStyledWindow() = default;
+};
+
+class StyledWindow : public QMainWindow, public IStyledWindow {
     Q_OBJECT
 
 public:
@@ -22,7 +30,7 @@ public:
 
     void init();
     void setWindowTitle(QString title);
-    void setupMenuBar(QMenuBar* menuBar);
+	void setupMenuBar(QMenuBar* menuBar) override;
 
 #ifdef WIN32
 public slots:
@@ -80,3 +88,5 @@ private:
 #endif
 };
 #endif // FRAME_LESS_H
+ 
+} // ads
