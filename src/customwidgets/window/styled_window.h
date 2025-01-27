@@ -67,6 +67,7 @@ private slots:
     void onTitleBarDestroyed();
 
 private:
+    void activateTitleBar(bool activated = true);
     struct StyledWindowPrivate;
     StyledWindowPrivate* d;
 
