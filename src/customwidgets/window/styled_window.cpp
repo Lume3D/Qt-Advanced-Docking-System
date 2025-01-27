@@ -11,7 +11,6 @@
 
 namespace ads
 {
-
 struct StyledWindow::StyledWindowPrivate
 {
     QWidget* leftLayoutWidget_{nullptr};
@@ -59,7 +58,11 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
 
 StyledWindow::~StyledWindow()
 {
-    delete d;
+#ifdef WIN32
+    d->minimizeHelper_ = nullptr;
+    d->maximizeHelper_ = nullptr;
+    d->closeHelper_ = nullptr;
+#endif
 }
 
 void StyledWindow::init()
@@ -101,12 +104,8 @@ void StyledWindow::setupMenuBar(QMenuBar* menuBar)
     auto layout = qobject_cast<QHBoxLayout*>(d->leftLayoutWidget_->layout());
     if (menuBar && layout)
     {
-        if (d->menuBar_)
-            d->menuBar_->deleteLater();
-
         d->menuBar_ = menuBar;
-        d->menuBar_->setSizePolicy(QSizePolicy::MinimumExpanding,
-                                   QSizePolicy::Maximum);
+        d->menuBar_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Maximum);
         d->menuBar_->setAttribute(Qt::WA_NoMousePropagation);
         d->menuBar_->setMouseTracking(false);
         layout->addWidget(d->menuBar_, 0, Qt::AlignLeft);
@@ -124,6 +123,39 @@ void StyledWindow::setupMenuBar(QMenuBar* menuBar)
 QMenuBar* StyledWindow::menuBar()
 {
     return d->menuBar_;
+}
+
+void StyledWindow::activateTitleBar(bool activated)
+{
+    if (!d->windowHint_)
+    {
+        return;
+    }
+
+    if (activated)
+    {
+        d->windowHint_->setStyleSheet("QToolBar {background-color: #0C0C0C;}");
+
+        if (d->menuBar_)
+        {
+            d->menuBar_->setStyleSheet(R"(
+                QMenuBar {background-color: #0C0C0C;} 
+                QMenuBar::item:disabled {background-color: #0C0C0C;}
+                )");
+        }
+    }
+    else
+    {
+        d->windowHint_->setStyleSheet("QToolBar {background-color: #242424;}");
+
+        if (d->menuBar_)
+        {
+            d->menuBar_->setStyleSheet(R"(
+                QMenuBar {background-color: #242424;}
+                QMenuBar::item:disabled {background-color: #242424;}
+                )");
+        }
+    }
 }
 
 #ifdef WIN32
@@ -218,7 +250,10 @@ void StyledWindow::constructHintButtons()
     int minimumWidth = 0;
     if (layout)
     {
-        d->closeHelper_ = new WidgetEventHelper(this);
+        if (!d->closeHelper_)
+        {
+            d->closeHelper_ = new WidgetEventHelper(this);
+        }
         if (windowFlags() & Qt::WindowCloseButtonHint)
         {
             if (!d->close_)
@@ -242,8 +277,15 @@ void StyledWindow::constructHintButtons()
             layout->addWidget(d->close_, 0, Qt::AlignRight);
             minimumWidth += d->close_->width();
         }
+        else
+        {
+            d->close_ = nullptr;
+        }
 
-        d->maximizeHelper_ = new WidgetEventHelper(this);
+        if (!d->maximizeHelper_)
+        {
+            d->maximizeHelper_ = new WidgetEventHelper(this);
+        }
         if (windowFlags() & Qt::WindowMaximizeButtonHint)
         {
             if (!d->maximize_)
@@ -289,8 +331,15 @@ void StyledWindow::constructHintButtons()
             layout->addWidget(d->maximize_, 0, Qt::AlignRight);
             minimumWidth += d->maximize_->width();
         }
+        else
+        {
+            d->maximize_ = nullptr;
+        }
 
-        d->minimizeHelper_ = new WidgetEventHelper(this);
+        if (!d->minimizeHelper_)
+        {
+            d->minimizeHelper_ = new WidgetEventHelper(this);
+        }
         if (windowFlags() & Qt::WindowMinimizeButtonHint)
         {
             if (!d->minimize_)
@@ -314,6 +363,10 @@ void StyledWindow::constructHintButtons()
             layout->addWidget(d->minimize_, 0, Qt::AlignRight);
             minimumWidth += d->minimize_->width();
         }
+        else
+        {
+            d->minimize_ = nullptr;
+        }
         d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
     }
 }
@@ -322,9 +375,9 @@ void StyledWindow::initWindowTitle()
 {
     d->leftLayoutWidget_ = new QWidget();
     d->rightLayoutWidget_ = new QWidget();
-    d->leftLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
+    d->leftLayoutWidget_->setSizePolicy(QSizePolicy::MinimumExpanding,
                                         QSizePolicy::Expanding);
-    d->rightLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
+    d->rightLayoutWidget_->setSizePolicy(QSizePolicy::MinimumExpanding,
                                          QSizePolicy::Expanding);
 
     auto leftLayout = new QHBoxLayout(d->leftLayoutWidget_);
@@ -358,12 +411,14 @@ void StyledWindow::initWindowTitle()
     d->windowHint_->addWidget(d->leftLayoutWidget_);
 
     d->titleLabel_ = new QLabel(this);
-    d->titleLabel_->setWordWrap(false);
     d->titleLabel_->setText(d->windowTitle_);
+    d->titleLabel_->setWordWrap(false);
     auto font = d->titleLabel_->font();
     font.setWeight(font.Bold);
     d->titleLabel_->setFont(font);
-    d->titleLabel_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    d->titleLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    // d->titleLabel_->setMaximumWidth(292);  // Todo: Make sure we have a good
+    //                                        // maximum width
     d->windowHint_->addWidget(d->titleLabel_);
 
     d->windowHint_->addWidget(d->rightLayoutWidget_);
@@ -466,7 +521,7 @@ void StyledWindow::resizeEvent(QResizeEvent* event)
             updateNativeWindowMargins(HWND(effectiveWinId()), d->nativeMargins_);
         }
 
-        d->windowHint_->setMaximumWidth(this->geometry().width());
+        d->windowHint_->setMaximumWidth(this->width());
     }
 
     QMainWindow::resizeEvent(event);
@@ -632,7 +687,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
             return false;
 
         QPoint pos;
-        // pos = titleBar_->mapFromGlobal(QPoint(x / dpr, y / dpr));
+        // pos = d->titleBar_->mapFromGlobal(QPoint(x / dpr, y / dpr));
         pos = d->titleBar_->mapFromGlobal(QCursor::pos());
         if (isOutOfWidget(d->titleBar_))
             return false;
@@ -717,7 +772,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
             update();
         }
 
-        return QMainWindow::nativeEvent(eventType, message, result);
+        break;
     }
 
     case WM_SIZE:
@@ -730,8 +785,11 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (msg->wParam == SIZE_MINIMIZED)
         {
             d->justMinimized_ = true;
+
+            activateTitleBar();  // Hack: require to show activate color after
+                                 // restoring window from minimized
         }
-        return QMainWindow::nativeEvent(eventType, message, result);
+        break;
     }
 
     case WM_GETMINMAXINFO:
@@ -816,7 +874,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         d->maximizeHelper_->HandleMouseMove();
         d->closeHelper_->HandleMouseMove();
 
-        return QMainWindow::nativeEvent(eventType, message, result);
+        break;
     }
 
     case WM_MOUSEMOVE:
@@ -859,7 +917,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
             return false;
 
         QPoint pos;
-        // pos = titleBar_->mapFromGlobal(QPoint(x / dpr, y / dpr));
+        // pos = d->titleBar_->mapFromGlobal(QPoint(x / dpr, y / dpr));
         pos = d->titleBar_->mapFromGlobal(QCursor::pos());
         if (isOutOfWidget(d->titleBar_))
             return false;
@@ -973,8 +1031,25 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         return false;
     }
 
-    default: return QMainWindow::nativeEvent(eventType, message, result);
+    case WM_STYLECHANGED:
+    {
+        if (msg->wParam == GWL_STYLE)
+        {
+            setResizeable(d->resizeable_);
+            constructHintButtons();
+        }
+        break;
     }
+
+    case WM_NCACTIVATE:
+    {
+        activateTitleBar(msg->wParam);
+    }
+
+    default: break;
+    }
+
+    return QMainWindow::nativeEvent(eventType, message, result);
 }
 #endif
 }  // namespace ads
