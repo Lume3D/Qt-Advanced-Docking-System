@@ -38,7 +38,6 @@ public:
     void setWindowTitle(QString title);
     void setupMenuBar(QMenuBar* menuBar) override;
     QMenuBar* menuBar() override;
-    void activateTitleBar(bool activated = true);
 
 #ifdef WIN32
 public slots:
@@ -68,6 +67,7 @@ private slots:
     void onTitleBarDestroyed();
 
 private:
+    void activateTitleBar(bool activated = true);
     struct StyledWindowPrivate;
     StyledWindowPrivate* d;
 

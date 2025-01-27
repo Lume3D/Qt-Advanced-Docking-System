@@ -58,11 +58,7 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
 
 StyledWindow::~StyledWindow()
 {
-#ifdef WIN32
-    d->minimizeHelper_ = nullptr;
-    d->maximizeHelper_ = nullptr;
-    d->closeHelper_ = nullptr;
-#endif
+    delete d;
 }
 
 void StyledWindow::init()
