@@ -18,7 +18,9 @@ class ADS_EXPORT IStyledWindow
 {
 public:
     virtual void setupMenuBar(QMenuBar* menu) = 0;
+    virtual void setIcon(QIcon menu) = 0;
     virtual QMenuBar* menuBar() = 0;
+    virtual void setSubToolbar(QToolBar* toolbar) = 0;
 
 protected:
     ~IStyledWindow() = default;
@@ -38,6 +40,8 @@ public:
     void setWindowTitle(QString title);
     void setupMenuBar(QMenuBar* menuBar) override;
     QMenuBar* menuBar() override;
+    void setIcon(QIcon icon) override;
+    void setSubToolbar(QToolBar* toolbar) override;
 
 #ifdef WIN32
 public slots:

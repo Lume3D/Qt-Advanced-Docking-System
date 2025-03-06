@@ -30,6 +30,7 @@ struct StyledWindow::StyledWindowPrivate
     QMargins margins_;
     QMargins nativeMargins_;
     QMargins frames_;
+    QWidget* divider_{nullptr};
 
     int borderWidth_{0};
     bool justMaximized_{false};
@@ -121,6 +122,28 @@ QMenuBar* StyledWindow::menuBar()
     return d->menuBar_;
 }
 
+void StyledWindow::setIcon(QIcon icon)
+{
+    d->logo_ = new QPushButton(icon, "", this);
+    d->logo_->setFixedWidth(21);
+    d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    d->logo_->setProperty("class", "menuWindowBt");
+}
+
+void StyledWindow::setSubToolbar(QToolBar* toolbar)
+{
+    if (toolbar)
+    {
+        auto layout = qobject_cast<QHBoxLayout*>(d->rightLayoutWidget_->layout());
+        if (layout && d->divider_)
+        {
+            auto in = layout->indexOf(d->divider_);
+            layout->insertWidget(in - 1, toolbar, 0,
+                                 Qt::AlignRight | Qt::AlignVCenter);
+        }
+    }
+}
+
 void StyledWindow::activateTitleBar(bool activated)
 {
     if (!d->windowHint_)
@@ -130,27 +153,11 @@ void StyledWindow::activateTitleBar(bool activated)
 
     if (activated)
     {
-        d->windowHint_->setStyleSheet("QToolBar {background-color: #0C0C0C;}");
-
-        if (d->menuBar_)
-        {
-            d->menuBar_->setStyleSheet(R"(
-                QMenuBar {background-color: #0C0C0C;} 
-                QMenuBar::item:disabled {background-color: #0C0C0C;}
-                )");
-        }
+        d->windowHint_->setStyleSheet("QToolBar {background-color: #202224;}");
     }
     else
     {
-        d->windowHint_->setStyleSheet("QToolBar {background-color: #242424;}");
-
-        if (d->menuBar_)
-        {
-            d->menuBar_->setStyleSheet(R"(
-                QMenuBar {background-color: #242424;}
-                QMenuBar::item:disabled {background-color: #242424;}
-                )");
-        }
+        d->windowHint_->setStyleSheet("QToolBar {background-color: #2e3033;}");
     }
 }
 
@@ -246,36 +253,36 @@ void StyledWindow::constructHintButtons()
     int minimumWidth = 0;
     if (layout)
     {
-        if (!d->closeHelper_)
+        if (!d->minimizeHelper_)
         {
-            d->closeHelper_ = new WidgetEventHelper(this);
+            d->minimizeHelper_ = new WidgetEventHelper(this);
         }
-        if (windowFlags() & Qt::WindowCloseButtonHint)
+        if (windowFlags() & Qt::WindowMinimizeButtonHint)
         {
-            if (!d->close_)
+            if (!d->minimize_)
             {
-                auto closeIcon = QIcon(":/icons/Icon_Close_Window.svg");
-                d->close_ = new QPushButton(closeIcon, "", this);
-                d->close_->setProperty("class", "closeWindowBt");
-                d->close_->setSizePolicy(QSizePolicy::Fixed,
-                                         QSizePolicy::Expanding);
-                d->closeHelper_->SetWidget(d->close_);
-
-                QObject::connect(d->close_, &QAbstractButton::released, this,
+                auto minimizeIcon = QIcon(":/icons/Icon_Minimize_Window.svg");
+                d->minimize_ = new QPushButton(minimizeIcon, "", this);
+                d->minimize_->setProperty("class", "minimizeWindowBt");
+                d->minimize_->setSizePolicy(QSizePolicy::Fixed,
+                                            QSizePolicy::Expanding);
+                d->minimizeHelper_->SetWidget(d->minimize_);
+                QObject::connect(d->minimize_, &QAbstractButton::released, this,
                                  [this]() {
-                                     if (this->isOutOfWidget(d->close_))
+                                     if (this->isOutOfWidget(d->minimize_))
                                      {
                                          return;
                                      }
-                                     this->close();
+                                     this->showMinimized();
                                  });
             }
-            layout->addWidget(d->close_, 0, Qt::AlignRight);
-            minimumWidth += d->close_->width();
+
+            layout->insertWidget(0, d->minimize_, 0, Qt::AlignRight);
+            minimumWidth += d->minimize_->width();
         }
         else
         {
-            d->close_ = nullptr;
+            d->minimize_ = nullptr;
         }
 
         if (!d->maximizeHelper_)
@@ -324,7 +331,7 @@ void StyledWindow::constructHintButtons()
                     });
             }
 
-            layout->addWidget(d->maximize_, 0, Qt::AlignRight);
+            layout->insertWidget(0, d->maximize_, 0, Qt::AlignRight);
             minimumWidth += d->maximize_->width();
         }
         else
@@ -332,37 +339,38 @@ void StyledWindow::constructHintButtons()
             d->maximize_ = nullptr;
         }
 
-        if (!d->minimizeHelper_)
+        if (!d->closeHelper_)
         {
-            d->minimizeHelper_ = new WidgetEventHelper(this);
+            d->closeHelper_ = new WidgetEventHelper(this);
         }
-        if (windowFlags() & Qt::WindowMinimizeButtonHint)
+        if (windowFlags() & Qt::WindowCloseButtonHint)
         {
-            if (!d->minimize_)
+            if (!d->close_)
             {
-                auto minimizeIcon = QIcon(":/icons/Icon_Minimize_Window.svg");
-                d->minimize_ = new QPushButton(minimizeIcon, "", this);
-                d->minimize_->setProperty("class", "minimizeWindowBt");
-                d->minimize_->setSizePolicy(QSizePolicy::Fixed,
-                                            QSizePolicy::Expanding);
-                d->minimizeHelper_->SetWidget(d->minimize_);
-                QObject::connect(d->minimize_, &QAbstractButton::released, this,
+                auto closeIcon = QIcon(":/icons/Icon_Close_Window.svg");
+                d->close_ = new QPushButton(closeIcon, "", this);
+                d->close_->setProperty("class", "closeWindowBt");
+                d->close_->setSizePolicy(QSizePolicy::Fixed,
+                                         QSizePolicy::Expanding);
+                d->closeHelper_->SetWidget(d->close_);
+
+                QObject::connect(d->close_, &QAbstractButton::released, this,
                                  [this]() {
-                                     if (this->isOutOfWidget(d->minimize_))
+                                     if (this->isOutOfWidget(d->close_))
                                      {
                                          return;
                                      }
-                                     this->showMinimized();
+                                     this->close();
                                  });
             }
-
-            layout->addWidget(d->minimize_, 0, Qt::AlignRight);
-            minimumWidth += d->minimize_->width();
+            layout->insertWidget(0, d->close_, 0, Qt::AlignRight);
+            minimumWidth += d->close_->width();
         }
         else
         {
-            d->minimize_ = nullptr;
+            d->close_ = nullptr;
         }
+
         d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
     }
 }
@@ -371,9 +379,9 @@ void StyledWindow::initWindowTitle()
 {
     d->leftLayoutWidget_ = new QWidget();
     d->rightLayoutWidget_ = new QWidget();
-    d->leftLayoutWidget_->setSizePolicy(QSizePolicy::MinimumExpanding,
+    d->leftLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
                                         QSizePolicy::Expanding);
-    d->rightLayoutWidget_->setSizePolicy(QSizePolicy::MinimumExpanding,
+    d->rightLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
                                          QSizePolicy::Expanding);
 
     auto leftLayout = new QHBoxLayout(d->leftLayoutWidget_);
@@ -390,19 +398,21 @@ void StyledWindow::initWindowTitle()
     d->windowHint_->setProperty("class", "window-title-bar");
     d->windowHint_->setMovable(false);
     d->windowHint_->setFloatable(false);
-    d->windowHint_->setSizePolicy(QSizePolicy::MinimumExpanding,
-                                  QSizePolicy::Fixed);
+    d->windowHint_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     d->windowHint_->layout()->setMargin(0);
     d->windowHint_->layout()->setSpacing(0);
 
-    auto lumeIcon = QIcon(":/lume_icon.svg");
-    d->logo_ = new QPushButton(lumeIcon, "", this);
-    d->logo_->setFixedWidth(21);
-    d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    d->logo_->setProperty("class", "menuWindowBt");
-    leftLayout->addWidget(d->logo_, 0, Qt::AlignLeft);
-    d->menuHelper_ = new WidgetEventHelper(this);
-    d->menuHelper_->SetWidget(d->logo_);
+    if (!d->logo_)
+    {
+        auto lumeIcon = QIcon(":/lume_icon.svg");
+        d->logo_ = new QPushButton(lumeIcon, "", this);
+        d->logo_->setFixedWidth(21);
+        d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        d->logo_->setProperty("class", "menuWindowBt");
+        leftLayout->addWidget(d->logo_, 0, Qt::AlignLeft);
+        d->menuHelper_ = new WidgetEventHelper(this);
+        d->menuHelper_->SetWidget(d->logo_);
+    }
 
     d->windowHint_->addWidget(d->leftLayoutWidget_);
 
@@ -417,6 +427,9 @@ void StyledWindow::initWindowTitle()
     //                                        // maximum width
     d->windowHint_->addWidget(d->titleLabel_);
 
+    d->divider_ = new QWidget(this);
+    d->divider_->setProperty("class", "toolbar-divider");
+    rightLayout->addWidget(d->divider_, 0, Qt::AlignRight | Qt::AlignVCenter);
     d->windowHint_->addWidget(d->rightLayoutWidget_);
 
     this->setAutoFillBackground(true);
@@ -516,8 +529,10 @@ void StyledWindow::resizeEvent(QResizeEvent* event)
             d->nativeMargins_.setTop(newHeight);
             updateNativeWindowMargins(HWND(effectiveWinId()), d->nativeMargins_);
         }
-
-        d->windowHint_->setMaximumWidth(this->width());
+    }
+    if (d->windowHint_)
+    {
+        d->windowHint_->resize(this->width(), d->windowHint_->height());
     }
 
     QMainWindow::resizeEvent(event);
