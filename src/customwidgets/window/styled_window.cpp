@@ -144,23 +144,6 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
     }
 }
 
-void StyledWindow::activateTitleBar(bool activated)
-{
-    if (!d->windowHint_)
-    {
-        return;
-    }
-
-    if (activated)
-    {
-        d->windowHint_->setStyleSheet("QToolBar {background-color: #202224;}");
-    }
-    else
-    {
-        d->windowHint_->setStyleSheet("QToolBar {background-color: #2e3033;}");
-    }
-}
-
 #ifdef WIN32
 
 void StyledWindow::setResizeable(bool resizeable)
@@ -796,9 +779,6 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (msg->wParam == SIZE_MINIMIZED)
         {
             d->justMinimized_ = true;
-
-            activateTitleBar();  // Hack: require to show activate color after
-                                 // restoring window from minimized
         }
         break;
     }
@@ -1054,7 +1034,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_NCACTIVATE:
     {
-        activateTitleBar(msg->wParam);
+        // activateTitleBar(msg->wParam);
     }
 
     default: break;
