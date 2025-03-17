@@ -293,23 +293,23 @@ void StyledWindow::constructHintButtons()
                         }
                         if (this->isMaximized())
                         {
-                            this->showNormal();
                             if (W_10)
                             {
-                                this->setStyleSheet(
-                                    QString("QMainWindow ")
-                                        .append(CUSTOM_FRAME_STYLE_ENABLE));
+                                this->setContentsMargins(
+                                    QMargins(CUSTOM_FRAME_THICKNESS,
+                                             CUSTOM_FRAME_THICKNESS,
+                                             CUSTOM_FRAME_THICKNESS,
+                                             CUSTOM_FRAME_THICKNESS));
                             }
+                            this->showNormal();
                         }
                         else
                         {
-                            this->showMaximized();
                             if (W_10)
                             {
-                                this->setStyleSheet(
-                                    QString("QMainWindow ")
-                                        .append(CUSTOM_FRAME_STYLE_DISABLE));
+                                this->setContentsMargins(QMargins());
                             }
+                            this->showMaximized();
                         }
                     });
             }
@@ -378,6 +378,7 @@ void StyledWindow::initWindowTitle()
     rightLayout->setDirection(QBoxLayout::Direction::RightToLeft);
 
     d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
+    d->windowHint_->setAutoFillBackground(false);
     d->windowHint_->setProperty("class", "window-title-bar");
     d->windowHint_->setMovable(false);
     d->windowHint_->setFloatable(false);
@@ -421,8 +422,13 @@ void StyledWindow::initWindowTitle()
 
     if (W_10)
     {
-        setContentsMargins(d->margins_ + CUSTOM_FRAME_THICKNESS);
-        setStyleSheet(QString("QMainWindow ").append(CUSTOM_FRAME_STYLE_ENABLE));
+        if (!this->isMaximized())
+        {
+            this->setContentsMargins(
+                QMargins(CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS,
+                         CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS));
+        }
+        this->setProperty("class", "window-10-main");
     }
 
     addIgnoreWidget(d->leftLayoutWidget_);
@@ -515,7 +521,8 @@ void StyledWindow::resizeEvent(QResizeEvent* event)
     }
     if (d->windowHint_)
     {
-        d->windowHint_->resize(this->width(), d->windowHint_->height());
+        d->windowHint_->resize(width() - d->frames_.right() - d->frames_.left(),
+                               d->windowHint_->height());
     }
 
     QMainWindow::resizeEvent(event);
@@ -577,10 +584,10 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
     case WM_NCCALCSIZE:
     {
-        NCCALCSIZE_PARAMS& params =
-            *reinterpret_cast<NCCALCSIZE_PARAMS*>(msg->lParam);
-        if (params.rgrc[0].top != 0)
-            --params.rgrc[0].top;
+        // NCCALCSIZE_PARAMS& params =
+        //     *reinterpret_cast<NCCALCSIZE_PARAMS*>(msg->lParam);
+        // if (params.rgrc[0].top != 0)
+        //     params.rgrc[0].top = 0;
         *result = WVR_REDRAW;
         return true;
     }
