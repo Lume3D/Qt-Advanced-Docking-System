@@ -26,9 +26,6 @@
 constexpr int CUSTOM_FRAME_THICKNESS = 1;
 constexpr int TITLE_BAR_HEIGHT = 32;
 #define W_10 (QSysInfo::productVersion().contains("10") && QOperatingSystemVersion::current().microVersion() < 21327)
-const QString CUSTOM_FRAME_STYLE_ENABLE =
-    QString::fromStdString("{ border: " + std::to_string(CUSTOM_FRAME_THICKNESS) + "px solid #BEBEBE }");
-#define CUSTOM_FRAME_STYLE_DISABLE "{ border: 0px }"
 #undef MIN
 #undef MAX
 #undef min
