@@ -9,6 +9,23 @@
 #    include "widget_event_helper.h"
 #endif
 
+namespace
+{
+bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
+{
+    MARGINS winMargins;
+
+    winMargins.cxLeftWidth = margins.left();
+    winMargins.cxRightWidth = margins.right();
+    winMargins.cyBottomHeight = margins.bottom();
+    winMargins.cyTopHeight = margins.top();
+
+    auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
+    return SUCCEEDED(hr);
+}
+
+}  // namespace
+
 namespace ads
 {
 struct StyledWindow::StyledWindowPrivate
@@ -28,7 +45,6 @@ struct StyledWindow::StyledWindowPrivate
     QWidget* titleBar_{nullptr};
     QList<QWidget*> whiteList_;
     QMargins margins_;
-    QMargins nativeMargins_;
     QMargins frames_;
     QWidget* divider_{nullptr};
 
@@ -358,6 +374,42 @@ void StyledWindow::constructHintButtons()
     }
 }
 
+class WindowHintEventFilter : public QObject
+{
+    Q_OBJECT
+
+public:
+    WindowHintEventFilter(QWidget* window) : window_(window) {}
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
+private:
+    QMargins nativeMargins_{};
+    QWidget* window_{nullptr};
+};
+
+bool WindowHintEventFilter::eventFilter(QObject* obj, QEvent* event)
+{
+    if (event->type() == QEvent::Resize)
+    {
+        QResizeEvent* resizeEvent = static_cast<QResizeEvent*>(event);
+
+        if (window_ && resizeEvent)
+        {
+            const auto dpr = window_->devicePixelRatioF();
+            nativeMargins_.setTop(resizeEvent->size().height() * dpr);
+            updateNativeWindowMargins(HWND(window_->internalWinId()),
+                                      nativeMargins_);
+        }
+        return true;
+    }
+    else
+    {
+        return QObject::eventFilter(obj, event);
+    }
+}
+
 void StyledWindow::initWindowTitle()
 {
     d->leftLayoutWidget_ = new QWidget();
@@ -378,6 +430,7 @@ void StyledWindow::initWindowTitle()
     rightLayout->setDirection(QBoxLayout::Direction::RightToLeft);
 
     d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
+    d->windowHint_->installEventFilter(new WindowHintEventFilter(this));
     d->windowHint_->setAutoFillBackground(false);
     d->windowHint_->setProperty("class", "window-title-bar");
     d->windowHint_->setMovable(false);
@@ -455,81 +508,52 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
     d->margins_.setBottom(bottom);
 }
 
-// Avoid artifacts when moving to another physical screen
-void StyledWindow::moveEvent(QMoveEvent* event)
-{
-    if (d->currentScreen_ == nullptr)
-    {
-        d->currentScreen_ = screen();
-    }
-    else if (d->currentScreen_ != screen())
-    {
-        d->currentScreen_ = screen();
-        if (d->displayScale_ != devicePixelRatioF())
-        {
-            d->displayScale_ = devicePixelRatioF();
-
-            // Hack: Force centralWidget to re-calculate size
-            auto cw = centralWidget();
-            if (cw)
-            {
-                cw->adjustSize();
-                cw->updateGeometry();
-            }
-        }
-
-        SetWindowPos((HWND)winId(), NULL, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
-                         | SWP_FRAMECHANGED | SWP_NOACTIVATE);
-    }
-
-    QMainWindow::moveEvent(event);
-}
-
-void StyledWindow::showEvent(QShowEvent* event)
-{
-    constructHintButtons();
-    QMainWindow::showEvent(event);
-}
-
-bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
-{
-    MARGINS winMargins;
-
-    winMargins.cxLeftWidth = margins.left();
-    winMargins.cxRightWidth = margins.right();
-    winMargins.cyBottomHeight = margins.bottom();
-    winMargins.cyTopHeight = margins.top();
-
-    auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
-    return SUCCEEDED(hr);
-}
-
-void StyledWindow::resizeEvent(QResizeEvent* event)
-{
-    if (d->titleBar_)
-    {
-        auto newHeight =
-            qMax(TITLE_BAR_HEIGHT,
-                 (int)(d->titleBar_->geometry().height() * d->displayScale_));
-
-        if (newHeight != d->nativeMargins_.top())
-        {
-            d->nativeMargins_.setTop(newHeight);
-            updateNativeWindowMargins(HWND(effectiveWinId()), d->nativeMargins_);
-        }
-    }
-    if (d->windowHint_)
-    {
-        d->windowHint_->resize(width() - d->frames_.right() - d->frames_.left(),
-                               d->windowHint_->height());
-    }
-
-    QMainWindow::resizeEvent(event);
-}
-
 bool StyledWindow::event(QEvent* event)
 {
+    if (event->type() == QEvent::Move)
+    {
+        if (d->currentScreen_ == nullptr)
+        {
+            d->currentScreen_ = screen();
+        }
+        else if (d->currentScreen_ != screen())
+        {
+            d->currentScreen_ = screen();
+            if (d->displayScale_ != devicePixelRatioF())
+            {
+                d->displayScale_ = devicePixelRatioF();
+
+                // Hack: Force centralWidget to re-calculate size
+                auto cw = centralWidget();
+                if (cw)
+                {
+                    cw->adjustSize();
+                    cw->updateGeometry();
+                }
+            }
+
+            SetWindowPos((HWND)winId(), NULL, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+                             | SWP_NOACTIVATE);
+        }
+    }
+
+    if (event->type() == QEvent::Show)
+    {
+        constructHintButtons();
+    }
+
+    if (event->type() == QEvent::Resize)
+    {
+        if (d->windowHint_)
+        {
+            d->windowHint_->resize(width() - d->frames_.right()
+                                       - d->frames_.left(),
+                                   d->windowHint_->height());
+        }
+    }
+
     if (event->type() == QEvent::WindowStateChange)
     {
         d->maximize_->setIcon(QIcon(!isMaximized() ?
@@ -823,21 +847,10 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         return false;
     }
 
-    case WM_ACTIVATE:
-    {
-        auto newHeight =
-            qMax(TITLE_BAR_HEIGHT,
-                 (int)(d->titleBar_->geometry().height() * d->displayScale_));
-        auto result = false;
-
-        if (newHeight != d->nativeMargins_.top())
-        {
-            d->nativeMargins_.setTop(newHeight);
-            result = updateNativeWindowMargins(HWND(effectiveWinId()),
-                                               d->nativeMargins_);
-        }
-        return result;
-    }
+    // case WM_ACTIVATE:
+    // {
+    //     return result;
+    // }
 
     // Handle Mouse Event from native win32 and serve the gesture to Qt
     case WM_LBUTTONUP:
@@ -1049,5 +1062,6 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     return QMainWindow::nativeEvent(eventType, message, result);
 }
+#    include "styled_window.moc"
 #endif
 }  // namespace ads
