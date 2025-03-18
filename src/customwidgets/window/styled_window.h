@@ -60,9 +60,6 @@ protected:
 
     bool nativeEvent(const QByteArray& eventType, void* message,
                      long* result) override;
-    void resizeEvent(QResizeEvent* event) override;
-    void moveEvent(QMoveEvent* event) override;
-    void showEvent(QShowEvent* event) override;
     bool event(QEvent* event) override;
     bool isOutOfWidget(QWidget* widget);
     QMenu* createPopupMenu() override;
