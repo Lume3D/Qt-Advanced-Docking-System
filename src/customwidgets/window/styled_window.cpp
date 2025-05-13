@@ -174,21 +174,21 @@ void StyledWindow::setResizeable(bool resizeable)
     bool visible = isVisible();
     d->resizeable_ = resizeable;
     HWND hwnd = (HWND)this->winId();
-    DWORD style = ::GetWindowLong(hwnd, GWL_STYLE) | WS_CAPTION;
+    DWORD style = ::GetWindowLong(hwnd, GWL_STYLE) | WS_POPUP | WS_CAPTION;
 
     if (d->resizeable_)
     {
-        style = style | WS_THICKFRAME;
+        style |= WS_THICKFRAME;
     }
 
     if (windowFlags() & Qt::WindowMaximizeButtonHint)
     {
-        style = style | WS_MAXIMIZEBOX;
+        style |= WS_MAXIMIZEBOX;
     }
 
     if (windowFlags() & Qt::WindowMinimizeButtonHint)
     {
-        style = style | WS_MINIMIZEBOX;
+        style |= WS_MINIMIZEBOX;
     }
 
     ::SetWindowLong(hwnd, GWL_STYLE, style);
@@ -389,7 +389,7 @@ void StyledWindow::initWindowTitle()
     rightLayout->setDirection(QBoxLayout::Direction::RightToLeft);
 
     d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
-#    ifdef ADS_EXPRIMENTAL_ACRYLIC_WINDOW
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
     d->windowHint_->setProperty("class", "window-title-bar-acrylic");
 #    else
     d->windowHint_->setProperty("class", "window-title-bar");
@@ -511,7 +511,8 @@ bool StyledWindow::event(QEvent* event)
     {
         setResizeable(d->resizeable_);
         constructHintButtons();
-        if(!d->initResize_) {
+        if (!d->initResize_)
+        {
             d->initResize_ = true;
             forceRedraw();
         }
@@ -557,7 +558,7 @@ QMenu* StyledWindow::createPopupMenu()
     return nullptr;
 }
 
-#    ifdef ADS_EXPRIMENTAL_ACRYLIC_WINDOW
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
 // Experimental: Acrylic Background
 typedef enum _WINDOWCOMPOSITIONATTRIB
 {
@@ -624,7 +625,7 @@ typedef BOOL(WINAPI* pfnSetWindowCompositionAttribute)(
 
 void StyledWindow::enableAcrylicWindow(bool enable)
 {
-#    ifdef ADS_EXPRIMENTAL_ACRYLIC_WINDOW
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
     setAttribute(Qt::WA_TranslucentBackground, true);
     HWND hwnd = (HWND)this->winId();
     HMODULE hUser = GetModuleHandle("user32.dll");
@@ -641,10 +642,8 @@ void StyledWindow::enableAcrylicWindow(bool enable)
                                     0, 0, 0};
             accent.GradientColor = 0x010000000;
 
-            WINDOWCOMPOSITIONATTRIBDATA data;
-            data.Attrib = WCA_ACCENT_POLICY;
-            data.pvData = &accent;
-            data.cbData = sizeof(accent);
+            WINDOWCOMPOSITIONATTRIBDATA data{WCA_ACCENT_POLICY, &accent,
+                                             sizeof(accent)};
             setWindowCompositionAttribute(hwnd, &data);
         }
     }
