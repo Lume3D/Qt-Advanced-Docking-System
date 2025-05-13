@@ -724,6 +724,7 @@ CFloatingDockContainer::CFloatingDockContainer(CDockManager *DockManager) :
 	auto env = qgetenv("ADS_LUME_UseCustomWindowFrame").toUpper();
 	if (env == "1") {
 		// Using custom window frame
+		setWindowFlags(windowFlags() &~ Qt::WindowMinimizeButtonHint);
 	} else {
 		setWindowFlags(
 		    Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint);

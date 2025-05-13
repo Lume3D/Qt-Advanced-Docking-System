@@ -43,12 +43,13 @@ public:
     void setIcon(QIcon icon) override;
     void setSubToolbar(QToolBar* toolbar) override;
 
-#ifdef WIN32
+#ifdef Q_OS_WIN
 public slots:
     void showFullScreen();
 
 protected:
     void initWindowTitle();
+    void enableAcrylicWindow(bool enable = true);
     void setResizeable(bool resizeable = true);
     bool isResizeable();
     void setResizeableAreaWidth(int width = 5);
@@ -63,6 +64,8 @@ protected:
     bool event(QEvent* event) override;
     bool isOutOfWidget(QWidget* widget);
     QMenu* createPopupMenu() override;
+
+    void forceRedraw();
 
 private slots:
     void onTitleBarDestroyed();

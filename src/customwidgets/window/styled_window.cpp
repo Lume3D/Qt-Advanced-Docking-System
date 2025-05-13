@@ -5,7 +5,7 @@
 
 #include "utils.h"
 
-#ifdef WIN32
+#ifdef Q_OS_WIN
 #    include "widget_event_helper.h"
 #endif
 
@@ -52,12 +52,14 @@ struct StyledWindow::StyledWindowPrivate
     bool justMaximized_{false};
     bool justMinimized_{false};
     bool resizeable_{true};
-
+    
     WidgetEventHelper* maximizeHelper_{nullptr};
     WidgetEventHelper* minimizeHelper_{nullptr};
     WidgetEventHelper* closeHelper_{nullptr};
     WidgetEventHelper* menuHelper_{nullptr};
     float displayScale_{1.f};
+
+    bool initResize_{false};
 };
 
 StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
@@ -65,11 +67,11 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
     : QMainWindow(parent, f)
 {
     d = new StyledWindowPrivate();
-#ifdef WIN32
+    setWindowTitle(windowTitle);
+#ifdef Q_OS_WIN
     d->windowTitle_ = windowTitle;
     init();
 #else
-    setWindowTitle(windowTitle);
 #endif
 }
 
@@ -80,23 +82,28 @@ StyledWindow::~StyledWindow()
 
 void StyledWindow::init()
 {
-#ifdef WIN32
+#ifdef Q_OS_WIN
     d->titleBar_ = Q_NULLPTR;
     d->borderWidth_ = 5;
     d->justMaximized_ = false;
     d->resizeable_ = true;
     d->displayScale_ = devicePixelRatioF();
-
-    setWindowFlags(windowFlags() | Qt::Window | Qt::FramelessWindowHint);
     setResizeableAreaWidth(8);
-    setResizeable(d->resizeable_);
+    Qt::WindowFlags flags;
+    flags |= Qt::Window;
+    flags |= Qt::FramelessWindowHint;
+    flags |= Qt::WindowMinMaxButtonsHint;
+    flags |= Qt::WindowCloseButtonHint;
+    setWindowFlags(flags);
+
+    enableAcrylicWindow(true);
     initWindowTitle();
 #endif
 }
 
 void StyledWindow::setWindowTitle(QString title)
 {
-#ifdef WIN32
+#ifdef Q_OS_WIN
     if (title.length() > 0)
     {
         d->titleLabel_->setText(title);
@@ -109,7 +116,7 @@ void StyledWindow::setWindowTitle(QString title)
 
 void StyledWindow::setupMenuBar(QMenuBar* menuBar)
 {
-#ifdef WIN32
+#ifdef Q_OS_WIN
     if (!d->leftLayoutWidget_)
     {
         return;
@@ -160,46 +167,34 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
     }
 }
 
-#ifdef WIN32
+#ifdef Q_OS_WIN
 
 void StyledWindow::setResizeable(bool resizeable)
 {
     bool visible = isVisible();
     d->resizeable_ = resizeable;
     HWND hwnd = (HWND)this->winId();
-    DWORD style =
-        (::GetWindowLong(hwnd, GWL_STYLE) | WS_POPUP | WS_CAPTION | WS_BORDER)
-        & ~WS_MAXIMIZE;
+    DWORD style = ::GetWindowLong(hwnd, GWL_STYLE) | WS_POPUP | WS_CAPTION;
 
     if (d->resizeable_)
     {
-        style = style | WS_THICKFRAME | WS_SIZEBOX;
-    }
-    else
-    {
-        style = style & ~WS_THICKFRAME & ~WS_SIZEBOX;
+        style |= WS_THICKFRAME;
     }
 
     if (windowFlags() & Qt::WindowMaximizeButtonHint)
     {
-        style = style | WS_MAXIMIZEBOX;
-    }
-    else
-    {
-        style = style & ~WS_MAXIMIZEBOX;
+        style |= WS_MAXIMIZEBOX;
     }
 
     if (windowFlags() & Qt::WindowMinimizeButtonHint)
     {
-        ::SetWindowLong(hwnd, GWL_STYLE, style | WS_MINIMIZEBOX);
-    }
-    else
-    {
-        ::SetWindowLong(hwnd, GWL_STYLE, style & ~WS_MINIMIZEBOX);
+        style |= WS_MINIMIZEBOX;
     }
 
+    ::SetWindowLong(hwnd, GWL_STYLE, style);
+
     const MARGINS shadow = {1, 1, 1, 1};
-    DwmExtendFrameIntoClientArea(HWND(winId()), &shadow);
+    DwmExtendFrameIntoClientArea(hwnd, &shadow);
     setVisible(visible);
 }
 
@@ -374,42 +369,6 @@ void StyledWindow::constructHintButtons()
     }
 }
 
-class WindowHintEventFilter : public QObject
-{
-    Q_OBJECT
-
-public:
-    WindowHintEventFilter(QWidget* window) : window_(window) {}
-
-protected:
-    bool eventFilter(QObject* obj, QEvent* event) override;
-
-private:
-    QMargins nativeMargins_{};
-    QWidget* window_{nullptr};
-};
-
-bool WindowHintEventFilter::eventFilter(QObject* obj, QEvent* event)
-{
-    if (event->type() == QEvent::Resize)
-    {
-        QResizeEvent* resizeEvent = static_cast<QResizeEvent*>(event);
-
-        if (window_ && resizeEvent)
-        {
-            const auto dpr = window_->devicePixelRatioF();
-            nativeMargins_.setTop(resizeEvent->size().height() * dpr);
-            updateNativeWindowMargins(HWND(window_->internalWinId()),
-                                      nativeMargins_);
-        }
-        return true;
-    }
-    else
-    {
-        return QObject::eventFilter(obj, event);
-    }
-}
-
 void StyledWindow::initWindowTitle()
 {
     d->leftLayoutWidget_ = new QWidget();
@@ -430,9 +389,11 @@ void StyledWindow::initWindowTitle()
     rightLayout->setDirection(QBoxLayout::Direction::RightToLeft);
 
     d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
-    d->windowHint_->installEventFilter(new WindowHintEventFilter(this));
-    d->windowHint_->setAutoFillBackground(false);
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
+    d->windowHint_->setProperty("class", "window-title-bar-acrylic");
+#    else
     d->windowHint_->setProperty("class", "window-title-bar");
+#    endif
     d->windowHint_->setMovable(false);
     d->windowHint_->setFloatable(false);
     d->windowHint_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
@@ -469,7 +430,6 @@ void StyledWindow::initWindowTitle()
     rightLayout->addWidget(d->divider_, 0, Qt::AlignRight | Qt::AlignVCenter);
     d->windowHint_->addWidget(d->rightLayoutWidget_);
 
-    this->setAutoFillBackground(true);
     this->setProperty("class", "window-main");
     this->addToolBarBreak();
 
@@ -508,8 +468,17 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
     d->margins_.setBottom(bottom);
 }
 
+void StyledWindow::forceRedraw()
+{
+    // Enforce resize with small amount
+    this->resize(this->size().width() - 1, this->size().height());
+    this->resize(this->size().width() + 1, this->size().height());
+}
+
 bool StyledWindow::event(QEvent* event)
 {
+    auto native = QMainWindow::event(event);
+
     if (event->type() == QEvent::Move)
     {
         if (d->currentScreen_ == nullptr)
@@ -531,8 +500,7 @@ bool StyledWindow::event(QEvent* event)
                     cw->updateGeometry();
                 }
             }
-
-            SetWindowPos((HWND)winId(), NULL, 0, 0, 0, 0,
+            SetWindowPos((HWND)effectiveWinId(), NULL, 0, 0, 0, 0,
                          SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
                              | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
                              | SWP_NOACTIVATE);
@@ -541,7 +509,13 @@ bool StyledWindow::event(QEvent* event)
 
     if (event->type() == QEvent::Show)
     {
+        setResizeable(d->resizeable_);
         constructHintButtons();
+        if (!d->initResize_)
+        {
+            d->initResize_ = true;
+            forceRedraw();
+        }
     }
 
     if (event->type() == QEvent::Resize)
@@ -556,13 +530,15 @@ bool StyledWindow::event(QEvent* event)
 
     if (event->type() == QEvent::WindowStateChange)
     {
-        d->maximize_->setIcon(QIcon(!isMaximized() ?
-                                        ":/icons/Icon_Maximize_Window.svg" :
-                                        ":/icons/Icon_Restore_Window.svg")
-                                  .pixmap(18, 18));
+        if (d->maximize_)
+        {
+            d->maximize_->setIcon(QIcon(!isMaximized() ?
+                                            ":/icons/Icon_Maximize_Window.svg" :
+                                            ":/icons/Icon_Restore_Window.svg")
+                                      .pixmap(18, 18));
+        }
     }
-
-    return QMainWindow::event(event);
+    return native;
 }
 
 bool StyledWindow::isOutOfWidget(QWidget* widget)
@@ -585,6 +561,98 @@ QMenu* StyledWindow::createPopupMenu()
     return nullptr;
 }
 
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
+// Experimental: Acrylic Background
+typedef enum _WINDOWCOMPOSITIONATTRIB
+{
+    WCA_UNDEFINED = 0,
+    WCA_NCRENDERING_ENABLED = 1,
+    WCA_NCRENDERING_POLICY = 2,
+    WCA_TRANSITIONS_FORCEDISABLED = 3,
+    WCA_ALLOW_NCPAINT = 4,
+    WCA_CAPTION_BUTTON_BOUNDS = 5,
+    WCA_NONCLIENT_RTL_LAYOUT = 6,
+    WCA_FORCE_ICONIC_REPRESENTATION = 7,
+    WCA_EXTENDED_FRAME_BOUNDS = 8,
+    WCA_HAS_ICONIC_BITMAP = 9,
+    WCA_THEME_ATTRIBUTES = 10,
+    WCA_NCRENDERING_EXILED = 11,
+    WCA_NCADORNMENTINFO = 12,
+    WCA_EXCLUDED_FROM_LIVEPREVIEW = 13,
+    WCA_VIDEO_OVERLAY_ACTIVE = 14,
+    WCA_FORCE_ACTIVEWINDOW_APPEARANCE = 15,
+    WCA_DISALLOW_PEEK = 16,
+    WCA_CLOAK = 17,
+    WCA_CLOAKED = 18,
+    WCA_ACCENT_POLICY = 19,
+    WCA_FREEZE_REPRESENTATION = 20,
+    WCA_EVER_UNCLOAKED = 21,
+    WCA_VISUAL_OWNER = 22,
+    WCA_HOLOGRAPHIC = 23,
+    WCA_EXCLUDED_FROM_DDA = 24,
+    WCA_PASSIVEUPDATEMODE = 25,
+    WCA_LAST = 26
+} WINDOWCOMPOSITIONATTRIB;
+
+typedef struct _WINDOWCOMPOSITIONATTRIBDATA
+{
+    WINDOWCOMPOSITIONATTRIB Attrib;
+    PVOID pvData;
+    SIZE_T cbData;
+} WINDOWCOMPOSITIONATTRIBDATA;
+
+typedef enum _ACCENT_STATE
+{
+    ACCENT_DISABLED = 0,
+    ACCENT_ENABLE_GRADIENT = 1,
+    ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
+    ACCENT_ENABLE_BLURBEHIND = 3,
+    ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,  // RS4 1803
+    ACCENT_ENABLE_HOSTBACKDROP = 5,       // RS5 1809
+    ACCENT_INVALID_STATE = 6
+} ACCENT_STATE;
+
+typedef struct _ACCENT_POLICY
+{
+    ACCENT_STATE AccentState;
+    DWORD AccentFlags;
+    DWORD GradientColor;
+    DWORD AnimationId;
+} ACCENT_POLICY;
+
+typedef BOOL(WINAPI* pfnGetWindowCompositionAttribute)(
+    HWND, WINDOWCOMPOSITIONATTRIBDATA*);
+typedef BOOL(WINAPI* pfnSetWindowCompositionAttribute)(
+    HWND, WINDOWCOMPOSITIONATTRIBDATA*);
+#    endif
+
+void StyledWindow::enableAcrylicWindow(bool enable)
+{
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    HWND hwnd = (HWND)this->winId();
+    HMODULE hUser = GetModuleHandle("user32.dll");
+    if (hUser)
+    {
+        pfnSetWindowCompositionAttribute setWindowCompositionAttribute =
+            (pfnSetWindowCompositionAttribute)GetProcAddress(
+                hUser, "SetWindowCompositionAttribute");
+
+        if (setWindowCompositionAttribute)
+        {
+            ACCENT_POLICY accent = {enable ? ACCENT_ENABLE_ACRYLICBLURBEHIND :
+                                             ACCENT_DISABLED,
+                                    0, 0, 0};
+            accent.GradientColor = 0x010000000;
+
+            WINDOWCOMPOSITIONATTRIBDATA data{WCA_ACCENT_POLICY, &accent,
+                                             sizeof(accent)};
+            setWindowCompositionAttribute(hwnd, &data);
+        }
+    }
+#    endif
+}
+
 void StyledWindow::showFullScreen()
 {
     if (isMaximized())
@@ -594,6 +662,14 @@ void StyledWindow::showFullScreen()
     }
     QMainWindow::showFullScreen();
 }
+
+#    ifndef WM_NCUAHDRAWCAPTION
+#        define WM_NCUAHDRAWCAPTION (0x00AE)
+#    endif
+
+#    ifndef WM_NCUAHDRAWFRAME
+#        define WM_NCUAHDRAWFRAME (0x00AF)
+#    endif
 
 bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                                long* result)
@@ -725,11 +801,6 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         }
         else
         {
-            if (d->whiteList_.contains(child))
-            {
-                *result = HTCAPTION;
-                return true;
-            }
             if (d->menuHelper_ && d->menuHelper_->Widget())
             {
                 if (d->menuHelper_->Widget() == child)
@@ -765,6 +836,11 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                     *result = HTCLOSE;
                     return true;
                 }
+            }
+            if (d->whiteList_.contains(child))
+            {
+                *result = HTCAPTION;
+                return true;
             }
         }
         return false;
@@ -849,10 +925,25 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     // case WM_ACTIVATE:
     // {
-    //     return result;
+    //     switch (msg->wParam)
+    //     {
+    //     case WA_INACTIVE:
+    //     {
+    //         qDebug() << windowTitle() << ": WA_INACTIVE";
+    //     }
+    //     break;
+
+    //     case WA_ACTIVE:
+    //     default:
+    //     {
+    //         qDebug() << windowTitle() << ": WA_ACTIVE";
+    //     }
+    //     break;
+    //     }
+    //     return false;
     // }
 
-    // Handle Mouse Event from native win32 and serve the gesture to Qt
+    // Handle Mouse Event from native Q_OS_WIN and serve the gesture to Qt
     case WM_LBUTTONUP:
     {
         if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
@@ -887,7 +978,16 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
         break;
     }
-
+    case WM_NCPAINT:
+    {
+        return false;
+    }
+    case WM_NCUAHDRAWCAPTION:
+    case WM_NCUAHDRAWFRAME:
+    {
+        *result = 0;
+        return true;
+    }
     case WM_MOUSEMOVE:
     {
         if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
@@ -1054,14 +1154,22 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_NCACTIVATE:
     {
-        // activateTitleBar(msg->wParam);
+        *result = DefWindowProcW(HWND(effectiveWinId()), WM_NCACTIVATE,
+                                 msg->wParam, -1);
+        break;
     }
+
+    case WM_WINDOWPOSCHANGING:
+    {
+        const auto windowPos = reinterpret_cast<LPWINDOWPOS>(msg->lParam);
+        windowPos->flags |= SWP_NOCOPYBITS;
+    }
+    break;
 
     default: break;
     }
 
-    return QMainWindow::nativeEvent(eventType, message, result);
+    return false;
 }
-#    include "styled_window.moc"
 #endif
 }  // namespace ads
