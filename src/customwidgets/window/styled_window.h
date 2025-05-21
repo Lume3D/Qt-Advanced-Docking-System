@@ -60,7 +60,9 @@ protected:
     void addIgnoreWidget(QWidget* widget);
     void setContentsMargins(const QMargins& margins);
     void setContentsMargins(int left, int top, int right, int bottom);
-    void constructHintButtons();
+    bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
+
+        void constructHintButtons();
 
     bool nativeEvent(const QByteArray& eventType, void* message,
                      long* result) override;
@@ -75,7 +77,6 @@ private slots:
 private:
     struct StyledWindowPrivate;
     StyledWindowPrivate* d;
-
 };
 
 }  // namespace ads

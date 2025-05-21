@@ -14,24 +14,7 @@
 #    include "macos_helper.h"
 #endif
 namespace
-{
-#ifdef Q_OS_WIN
-
-bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
-{
-    MARGINS winMargins;
-
-    winMargins.cxLeftWidth = margins.left();
-    winMargins.cxRightWidth = margins.right();
-    winMargins.cyBottomHeight = margins.bottom();
-    winMargins.cyTopHeight = margins.top();
-
-    auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
-    return SUCCEEDED(hr);
-}
-#endif
-
-}  // namespace
+{}  // namespace
 
 namespace ads
 {
@@ -329,6 +312,7 @@ void StyledWindow::setIcon(QIcon icon)
 
 void StyledWindow::setSubToolbar(QToolBar* toolbar)
 {
+#ifdef Q_OS_WIN
     if (toolbar)
     {
         auto layout = qobject_cast<QHBoxLayout*>(d->rightLayoutWidget_->layout());
@@ -347,6 +331,7 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
         }
 #endif
     }
+#endif
 }
 
 #ifdef Q_OS_WIN
@@ -685,6 +670,19 @@ void StyledWindow::enableAcrylicWindow(bool enable)
         }
     }
 #    endif
+}
+
+bool StyledWindow::updateNativeWindowMargins(HWND hwnd, QMargins margins)
+{
+    MARGINS winMargins;
+
+    winMargins.cxLeftWidth = margins.left();
+    winMargins.cxRightWidth = margins.right();
+    winMargins.cyBottomHeight = margins.bottom();
+    winMargins.cyTopHeight = margins.top();
+
+    auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
+    return SUCCEEDED(hr);
 }
 
 void StyledWindow::showFullScreen()
