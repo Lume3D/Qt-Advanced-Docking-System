@@ -69,12 +69,11 @@ protected:
 
 private slots:
     void onTitleBarDestroyed();
-
+#endif
 private:
     struct StyledWindowPrivate;
     StyledWindowPrivate* d;
 
-#endif
 };
 
 }  // namespace ads

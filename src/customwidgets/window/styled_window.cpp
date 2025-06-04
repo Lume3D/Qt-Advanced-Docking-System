@@ -11,6 +11,9 @@
 
 namespace
 {
+
+#ifdef Q_OS_WIN
+
 bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
 {
     MARGINS winMargins;
@@ -23,6 +26,7 @@ bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
     auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
     return SUCCEEDED(hr);
 }
+#endif
 
 }  // namespace
 
@@ -67,6 +71,7 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
     : QMainWindow(parent, f)
 {
     d = new StyledWindowPrivate();
+    
     setWindowTitle(windowTitle);
 #ifdef Q_OS_WIN
     d->windowTitle_ = windowTitle;
@@ -147,14 +152,18 @@ QMenuBar* StyledWindow::menuBar()
 
 void StyledWindow::setIcon(QIcon icon)
 {
+#ifdef Q_OS_WIN
     d->logo_ = new QPushButton(icon, "", this);
     d->logo_->setFixedWidth(21);
     d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     d->logo_->setProperty("class", "menuWindowBt");
+#endif
 }
 
 void StyledWindow::setSubToolbar(QToolBar* toolbar)
 {
+#ifdef Q_OS_WIN
+
     if (toolbar)
     {
         auto layout = qobject_cast<QHBoxLayout*>(d->rightLayoutWidget_->layout());
@@ -165,6 +174,7 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
                                  Qt::AlignRight | Qt::AlignVCenter);
         }
     }
+#endif
 }
 
 #ifdef Q_OS_WIN
