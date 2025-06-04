@@ -14,7 +14,25 @@
 #    include "macos_helper.h"
 #endif
 namespace
-{}  // namespace
+{
+
+#ifdef Q_OS_WIN
+
+bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
+{
+    MARGINS winMargins;
+
+    winMargins.cxLeftWidth = margins.left();
+    winMargins.cxRightWidth = margins.right();
+    winMargins.cyBottomHeight = margins.bottom();
+    winMargins.cyTopHeight = margins.top();
+
+    auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
+    return SUCCEEDED(hr);
+}
+#endif
+
+}  // namespace
 
 namespace ads
 {
