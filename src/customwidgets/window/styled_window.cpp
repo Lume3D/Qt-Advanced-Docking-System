@@ -330,7 +330,6 @@ void StyledWindow::setIcon(QIcon icon)
 
 void StyledWindow::setSubToolbar(QToolBar* toolbar)
 {
-#ifdef Q_OS_WIN
     if (toolbar)
     {
         auto layout = qobject_cast<QHBoxLayout*>(d->rightLayoutWidget_->layout());
@@ -349,7 +348,6 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
         }
 #endif
     }
-#endif
 }
 
 #ifdef Q_OS_WIN

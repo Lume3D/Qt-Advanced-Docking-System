@@ -42,7 +42,7 @@ public:
     QMenuBar* menuBar() override;
     void setIcon(QIcon icon) override;
     void setSubToolbar(QToolBar* toolbar) override;
-    
+
 protected:
     bool event(QEvent* event) override;
     void initWindowTitle();
@@ -62,7 +62,7 @@ protected:
     void setContentsMargins(int left, int top, int right, int bottom);
     bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
 
-        void constructHintButtons();
+    void constructHintButtons();
 
     bool nativeEvent(const QByteArray& eventType, void* message,
                      long* result) override;

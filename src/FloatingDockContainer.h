@@ -206,7 +206,7 @@ protected: // reimplements QWidget
 	virtual bool event(QEvent *e) override;
 #endif
 
-#ifdef Q_OS_WIN 
+#ifdef Q_OS_WIN
 	/**
 	 * Native event filter for handling WM_MOVING messages on Windows
 	 */
