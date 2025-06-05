@@ -1,4 +1,5 @@
 
+
 #include "styled_window.h"
 
 #include <QList>
@@ -9,9 +10,11 @@
 #    include "widget_event_helper.h"
 #endif
 
+#ifdef Q_OS_MACOS
+#    include "macos_helper.h"
+#endif
 namespace
 {
-
 #ifdef Q_OS_WIN
 
 bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
@@ -56,7 +59,7 @@ struct StyledWindow::StyledWindowPrivate
     bool justMaximized_{false};
     bool justMinimized_{false};
     bool resizeable_{true};
-    
+
     WidgetEventHelper* maximizeHelper_{nullptr};
     WidgetEventHelper* minimizeHelper_{nullptr};
     WidgetEventHelper* closeHelper_{nullptr};
@@ -71,13 +74,8 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
     : QMainWindow(parent, f)
 {
     d = new StyledWindowPrivate();
-    
-    setWindowTitle(windowTitle);
-#ifdef Q_OS_WIN
-    d->windowTitle_ = windowTitle;
+    this->setWindowTitle(windowTitle);
     init();
-#else
-#endif
 }
 
 StyledWindow::~StyledWindow()
@@ -87,12 +85,12 @@ StyledWindow::~StyledWindow()
 
 void StyledWindow::init()
 {
-#ifdef Q_OS_WIN
-    d->titleBar_ = Q_NULLPTR;
-    d->borderWidth_ = 5;
     d->justMaximized_ = false;
     d->resizeable_ = true;
     d->displayScale_ = devicePixelRatioF();
+#ifdef Q_OS_WIN
+    d->titleBar_ = Q_NULLPTR;
+    d->borderWidth_ = 5;
     setResizeableAreaWidth(8);
     Qt::WindowFlags flags;
     flags |= Qt::Window;
@@ -102,21 +100,20 @@ void StyledWindow::init()
     setWindowFlags(flags);
 
     enableAcrylicWindow(true);
-    initWindowTitle();
 #endif
+    initWindowTitle();
 }
 
 void StyledWindow::setWindowTitle(QString title)
 {
-#ifdef Q_OS_WIN
     if (title.length() > 0)
     {
+#if defined(Q_OS_LINUX)
+        QMainWindow::setWindowTitle(title);
+#else
         d->titleLabel_->setText(title);
-    }
 #endif
-    // the UI tests (project) are checking the qt window title
-    // so change the actual Qt main window title too.
-    QWidget::setWindowTitle(title);
+    }
 }
 
 void StyledWindow::setupMenuBar(QMenuBar* menuBar)
@@ -138,16 +135,186 @@ void StyledWindow::setupMenuBar(QMenuBar* menuBar)
     }
 
 #else
-    if (this->menuBar())
+    this->setMenuBar(menuBar);
+#endif
+}
+
+void StyledWindow::initWindowTitle()
+{
+    d->leftLayoutWidget_ = new QWidget();
+    d->rightLayoutWidget_ = new QWidget();
+    d->leftLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
+                                        QSizePolicy::Expanding);
+    d->rightLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
+                                         QSizePolicy::Expanding);
+
+    auto leftLayout = new QHBoxLayout(d->leftLayoutWidget_);
+    leftLayout->setContentsMargins(8, 0, 0, 0);
+    leftLayout->setAlignment(Qt::AlignLeft);
+
+    auto rightLayout = new QHBoxLayout(d->rightLayoutWidget_);
+    rightLayout->setSpacing(0);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setAlignment(Qt::AlignRight);
+    rightLayout->setDirection(QBoxLayout::Direction::RightToLeft);
+
+    d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
+    d->windowHint_->setProperty("class", "window-title-bar");
+#ifdef Q_OS_WIN
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
+    d->windowHint_->setProperty("class", "window-title-bar-acrylic");
+#    endif
+#endif
+    d->windowHint_->setMovable(false);
+    d->windowHint_->setFloatable(false);
+    d->windowHint_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    d->windowHint_->layout()->setMargin(0);
+    d->windowHint_->layout()->setSpacing(0);
+
+#ifdef Q_OS_WIN
+    if (!d->logo_)
     {
-        this->setMenuBar(menuBar);
+        auto lumeIcon = QIcon(":/lume_icon.svg");
+        d->logo_ = new QPushButton(lumeIcon, "", this);
+        d->logo_->setFixedWidth(21);
+        d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        d->logo_->setProperty("class", "menuWindowBt");
+        leftLayout->addWidget(d->logo_, 0, Qt::AlignLeft);
+        d->menuHelper_ = new WidgetEventHelper(this);
+        d->menuHelper_->SetWidget(d->logo_);
     }
 #endif
+
+    d->windowHint_->addWidget(d->leftLayoutWidget_);
+
+    d->titleLabel_ = new QLabel(this);
+    d->titleLabel_->setText(d->windowTitle_);
+    d->titleLabel_->setWordWrap(false);
+    auto font = d->titleLabel_->font();
+    font.setWeight(font.Bold);
+    d->titleLabel_->setFont(font);
+    d->titleLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+    d->titleLabel_->setMaximumWidth(292);  // Todo: Make sure we have a good
+                                           // maximum width
+    d->windowHint_->addWidget(d->titleLabel_);
+#ifdef Q_OS_WIN
+    d->divider_ = new QWidget(this);
+    d->divider_->setProperty("class", "toolbar-divider");
+    rightLayout->addWidget(d->divider_, 0, Qt::AlignRight | Qt::AlignVCenter);
+#endif
+    d->windowHint_->addWidget(d->rightLayoutWidget_);
+
+    this->setProperty("class", "window-main");
+    this->addToolBarBreak();
+#ifdef Q_OS_WIN
+
+    if (W_10)
+    {
+        if (!this->isMaximized())
+        {
+            this->setContentsMargins(
+                QMargins(CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS,
+                         CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS));
+        }
+        this->setProperty("class", "window-10-main");
+    }
+
+    setTitleBar(d->windowHint_);
+    addIgnoreWidget(d->leftLayoutWidget_);
+    addIgnoreWidget(d->rightLayoutWidget_);
+    addIgnoreWidget(d->titleLabel_);
+#endif
+    setFocusProxy(d->windowHint_);
+}
+
+bool StyledWindow::event(QEvent* event)
+{
+    auto native = QMainWindow::event(event);
+#ifdef Q_OS_WIN
+
+    if (event->type() == QEvent::Move)
+    {
+        if (d->currentScreen_ == nullptr)
+        {
+            d->currentScreen_ = screen();
+        }
+        else if (d->currentScreen_ != screen())
+        {
+            d->currentScreen_ = screen();
+            if (d->displayScale_ != devicePixelRatioF())
+            {
+                d->displayScale_ = devicePixelRatioF();
+
+                // Hack: Force centralWidget to re-calculate size
+                auto cw = centralWidget();
+                if (cw)
+                {
+                    cw->adjustSize();
+                    cw->updateGeometry();
+                }
+            }
+            SetWindowPos((HWND)effectiveWinId(), NULL, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+                             | SWP_NOACTIVATE);
+        }
+    }
+
+    if (event->type() == QEvent::Show)
+    {
+        setResizeable(d->resizeable_);
+        constructHintButtons();
+        if (!d->initResize_)
+        {
+            d->initResize_ = true;
+            forceRedraw();
+        }
+    }
+
+    if (event->type() == QEvent::Resize)
+    {
+        if (d->windowHint_)
+        {
+            d->windowHint_->resize(width() - d->frames_.right()
+                                       - d->frames_.left(),
+                                   d->windowHint_->height());
+        }
+    }
+
+    if (event->type() == QEvent::WindowStateChange)
+    {
+        if (d->maximize_)
+        {
+            d->maximize_->setIcon(QIcon(!isMaximized() ?
+                                            ":/icons/Icon_Maximize_Window.svg" :
+                                            ":/icons/Icon_Restore_Window.svg")
+                                      .pixmap(18, 18));
+        }
+    }
+#endif
+#ifdef Q_OS_MACOS
+    auto type = event->type();
+    if (event->type() == QEvent::WindowActivate)
+    {
+        // HideTitleBar(this);
+    }
+    if (event->type() == QEvent::Show)
+    {
+        this->setUnifiedTitleAndToolBarOnMac(true);
+        HideTitleBar(this->winId());
+    }
+#endif
+    return native;
 }
 
 QMenuBar* StyledWindow::menuBar()
 {
+#ifdef Q_OS_WIN
+
     return d->menuBar_;
+#else
+    return QMainWindow::menuBar();
+#endif
 }
 
 void StyledWindow::setIcon(QIcon icon)
@@ -162,19 +329,24 @@ void StyledWindow::setIcon(QIcon icon)
 
 void StyledWindow::setSubToolbar(QToolBar* toolbar)
 {
-#ifdef Q_OS_WIN
-
     if (toolbar)
     {
         auto layout = qobject_cast<QHBoxLayout*>(d->rightLayoutWidget_->layout());
+#ifdef Q_OS_WIN
         if (layout && d->divider_)
         {
             auto in = layout->indexOf(d->divider_);
             layout->insertWidget(in - 1, toolbar, 0,
                                  Qt::AlignRight | Qt::AlignVCenter);
         }
-    }
+#else
+        if (layout)
+        {
+            layout->insertWidget(0, toolbar, 0,
+                                 Qt::AlignRight | Qt::AlignVCenter);
+        }
 #endif
+    }
 }
 
 #ifdef Q_OS_WIN
@@ -379,88 +551,6 @@ void StyledWindow::constructHintButtons()
     }
 }
 
-void StyledWindow::initWindowTitle()
-{
-    d->leftLayoutWidget_ = new QWidget();
-    d->rightLayoutWidget_ = new QWidget();
-    d->leftLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
-                                        QSizePolicy::Expanding);
-    d->rightLayoutWidget_->setSizePolicy(QSizePolicy::Expanding,
-                                         QSizePolicy::Expanding);
-
-    auto leftLayout = new QHBoxLayout(d->leftLayoutWidget_);
-    leftLayout->setContentsMargins(8, 0, 0, 0);
-    leftLayout->setAlignment(Qt::AlignLeft);
-
-    auto rightLayout = new QHBoxLayout(d->rightLayoutWidget_);
-    rightLayout->setSpacing(0);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setAlignment(Qt::AlignRight);
-    rightLayout->setDirection(QBoxLayout::Direction::RightToLeft);
-
-    d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
-#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
-    d->windowHint_->setProperty("class", "window-title-bar-acrylic");
-#    else
-    d->windowHint_->setProperty("class", "window-title-bar");
-#    endif
-    d->windowHint_->setMovable(false);
-    d->windowHint_->setFloatable(false);
-    d->windowHint_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    d->windowHint_->layout()->setMargin(0);
-    d->windowHint_->layout()->setSpacing(0);
-
-    if (!d->logo_)
-    {
-        auto lumeIcon = QIcon(":/lume_icon.svg");
-        d->logo_ = new QPushButton(lumeIcon, "", this);
-        d->logo_->setFixedWidth(21);
-        d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-        d->logo_->setProperty("class", "menuWindowBt");
-        leftLayout->addWidget(d->logo_, 0, Qt::AlignLeft);
-        d->menuHelper_ = new WidgetEventHelper(this);
-        d->menuHelper_->SetWidget(d->logo_);
-    }
-
-    d->windowHint_->addWidget(d->leftLayoutWidget_);
-
-    d->titleLabel_ = new QLabel(this);
-    d->titleLabel_->setText(d->windowTitle_);
-    d->titleLabel_->setWordWrap(false);
-    auto font = d->titleLabel_->font();
-    font.setWeight(font.Bold);
-    d->titleLabel_->setFont(font);
-    d->titleLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
-    // d->titleLabel_->setMaximumWidth(292);  // Todo: Make sure we have a good
-    //                                        // maximum width
-    d->windowHint_->addWidget(d->titleLabel_);
-
-    d->divider_ = new QWidget(this);
-    d->divider_->setProperty("class", "toolbar-divider");
-    rightLayout->addWidget(d->divider_, 0, Qt::AlignRight | Qt::AlignVCenter);
-    d->windowHint_->addWidget(d->rightLayoutWidget_);
-
-    this->setProperty("class", "window-main");
-    this->addToolBarBreak();
-
-    if (W_10)
-    {
-        if (!this->isMaximized())
-        {
-            this->setContentsMargins(
-                QMargins(CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS,
-                         CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS));
-        }
-        this->setProperty("class", "window-10-main");
-    }
-
-    addIgnoreWidget(d->leftLayoutWidget_);
-    addIgnoreWidget(d->rightLayoutWidget_);
-    setTitleBar(d->windowHint_);
-    addIgnoreWidget(d->titleLabel_);
-    setFocusProxy(d->windowHint_);
-}
-
 void StyledWindow::setContentsMargins(const QMargins& margins)
 {
     QMainWindow::setContentsMargins(margins + d->frames_);
@@ -483,72 +573,6 @@ void StyledWindow::forceRedraw()
     // Enforce resize with small amount
     this->resize(this->size().width() - 1, this->size().height());
     this->resize(this->size().width() + 1, this->size().height());
-}
-
-bool StyledWindow::event(QEvent* event)
-{
-    auto native = QMainWindow::event(event);
-
-    if (event->type() == QEvent::Move)
-    {
-        if (d->currentScreen_ == nullptr)
-        {
-            d->currentScreen_ = screen();
-        }
-        else if (d->currentScreen_ != screen())
-        {
-            d->currentScreen_ = screen();
-            if (d->displayScale_ != devicePixelRatioF())
-            {
-                d->displayScale_ = devicePixelRatioF();
-
-                // Hack: Force centralWidget to re-calculate size
-                auto cw = centralWidget();
-                if (cw)
-                {
-                    cw->adjustSize();
-                    cw->updateGeometry();
-                }
-            }
-            SetWindowPos((HWND)effectiveWinId(), NULL, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
-                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-                             | SWP_NOACTIVATE);
-        }
-    }
-
-    if (event->type() == QEvent::Show)
-    {
-        setResizeable(d->resizeable_);
-        constructHintButtons();
-        if (!d->initResize_)
-        {
-            d->initResize_ = true;
-            forceRedraw();
-        }
-    }
-
-    if (event->type() == QEvent::Resize)
-    {
-        if (d->windowHint_)
-        {
-            d->windowHint_->resize(width() - d->frames_.right()
-                                       - d->frames_.left(),
-                                   d->windowHint_->height());
-        }
-    }
-
-    if (event->type() == QEvent::WindowStateChange)
-    {
-        if (d->maximize_)
-        {
-            d->maximize_->setIcon(QIcon(!isMaximized() ?
-                                            ":/icons/Icon_Maximize_Window.svg" :
-                                            ":/icons/Icon_Restore_Window.svg")
-                                      .pixmap(18, 18));
-        }
-    }
-    return native;
 }
 
 bool StyledWindow::isOutOfWidget(QWidget* widget)

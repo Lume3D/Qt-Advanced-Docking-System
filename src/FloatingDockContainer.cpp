@@ -45,7 +45,6 @@
 #include "DockManager.h"
 #include "DockWidget.h"
 #include "DockOverlay.h"
-#include "customwidgets/window/styled_window.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -1313,7 +1312,12 @@ bool CFloatingDockContainer::event(QEvent *e)
 #if (ADS_DEBUG_LEVEL > 0)
 	qDebug() << QTime::currentTime() << "CFloatingDockContainer::event " << e->type();
 #endif
+
+#if defined(ADS_STYLED_WINDOW)
+    return StyledWindow::event(e);
+#else
 	return QWidget::event(e);
+#endif
 }
 
 

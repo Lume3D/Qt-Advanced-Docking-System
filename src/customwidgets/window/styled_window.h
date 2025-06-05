@@ -42,13 +42,16 @@ public:
     QMenuBar* menuBar() override;
     void setIcon(QIcon icon) override;
     void setSubToolbar(QToolBar* toolbar) override;
+    
+protected:
+    bool event(QEvent* event) override;
+    void initWindowTitle();
 
 #ifdef Q_OS_WIN
 public slots:
     void showFullScreen();
 
 protected:
-    void initWindowTitle();
     void enableAcrylicWindow(bool enable = true);
     void setResizeable(bool resizeable = true);
     bool isResizeable();
@@ -61,7 +64,6 @@ protected:
 
     bool nativeEvent(const QByteArray& eventType, void* message,
                      long* result) override;
-    bool event(QEvent* event) override;
     bool isOutOfWidget(QWidget* widget);
     QMenu* createPopupMenu() override;
 
