@@ -60,10 +60,8 @@ protected:
     void addIgnoreWidget(QWidget* widget);
     void setContentsMargins(const QMargins& margins);
     void setContentsMargins(int left, int top, int right, int bottom);
-    bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
-
+    bool updateNativeWindowMargins(HWND hwnd, QMargins margins);
     void constructHintButtons();
-
     bool nativeEvent(const QByteArray& eventType, void* message,
                      long* result) override;
     bool isOutOfWidget(QWidget* widget);
