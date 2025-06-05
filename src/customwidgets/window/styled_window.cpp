@@ -195,8 +195,8 @@ void StyledWindow::initWindowTitle()
     font.setWeight(font.Bold);
     d->titleLabel_->setFont(font);
     d->titleLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
-    d->titleLabel_->setMaximumWidth(292);  // Todo: Make sure we have a good
-                                           // maximum width
+    // d->titleLabel_->setMaximumWidth(292);  // Todo: Make sure we have a good
+    //                                        // maximum width
     d->windowHint_->addWidget(d->titleLabel_);
 #ifdef Q_OS_WIN
     d->divider_ = new QWidget(this);
