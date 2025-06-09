@@ -36,19 +36,21 @@ public:
                           QString windowTitle = "");
     ~StyledWindow();
 
-    void init();
-    void setWindowTitle(QString title);
     void setupMenuBar(QMenuBar* menuBar) override;
     QMenuBar* menuBar() override;
     void setIcon(QIcon icon) override;
     void setSubToolbar(QToolBar* toolbar) override;
+    bool event(QEvent* event) override;
+
+private:
+    void init();
+    void initWindowTitle();
 
 #ifdef Q_OS_WIN
 public slots:
     void showFullScreen();
 
 protected:
-    void initWindowTitle();
     void enableAcrylicWindow(bool enable = true);
     void setResizeable(bool resizeable = true);
     bool isResizeable();
@@ -58,10 +60,8 @@ protected:
     void setContentsMargins(const QMargins& margins);
     void setContentsMargins(int left, int top, int right, int bottom);
     void constructHintButtons();
-
     bool nativeEvent(const QByteArray& eventType, void* message,
                      long* result) override;
-    bool event(QEvent* event) override;
     bool isOutOfWidget(QWidget* widget);
     QMenu* createPopupMenu() override;
 
@@ -69,12 +69,10 @@ protected:
 
 private slots:
     void onTitleBarDestroyed();
-
+#endif
 private:
     struct StyledWindowPrivate;
     StyledWindowPrivate* d;
-
-#endif
 };
 
 }  // namespace ads

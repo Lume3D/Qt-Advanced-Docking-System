@@ -22,6 +22,13 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 if(BUILD_STATIC)
     set(CMAKE_STATIC_LIBRARY_SUFFIX "_static${CMAKE_STATIC_LIBRARY_SUFFIX}")
 endif()
+
+option(BUILD_ADS_STYLED_WINDOW "Build ADS Styled Window Frame" OFF)
+
+if (APPLE) 
+    find_library(COCOA_LIBRARY Cocoa)
+endif()
+
 set(ads_SRCS
     ads_globals.cpp
     DockAreaTabBar.cpp
@@ -45,10 +52,9 @@ set(ads_SRCS
     AutoHideDockContainer.cpp
     PushButton.cpp
     ResizeHandle.cpp
-    customwidgets/window/styled_window.cpp
-    customwidgets/window/widget_event_helper.cpp
     ads.qrc
 )
+
 set(ads_HEADERS
     ads_globals.h
     DockAreaTabBar.h
@@ -73,11 +79,30 @@ set(ads_HEADERS
     AutoHideDockContainer.h
     PushButton.h
     ResizeHandle.h
-    customwidgets/window/styled_window.h
-    customwidgets/window/utils.h
-    customwidgets/window/widget_event_helper.h
 )
-add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+
+if (BUILD_ADS_STYLED_WINDOW)
+    set(ads_SRCS 
+        customwidgets/window/styled_window.cpp
+        ${ads_SRCS} )
+    set(ads_HEADERS     
+        customwidgets/window/styled_window.h
+        ${ads_HEADERS})
+    if (WIN32) 
+        set(ads_SRCS customwidgets/window/widget_event_helper.cpp ${ads_SRCS} )
+        set(ads_HEADERS 
+            customwidgets/window/widget_event_helper.h 
+            customwidgets/window/win_utils.h 
+            ${ads_HEADERS})
+        add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
+    endif()
+    if (APPLE) 
+        set(ads_SRCS customwidgets/window/macos_helper.mm ${ads_SRCS} )
+        set(ads_HEADERS customwidgets/window/macos_helper.h ${ads_HEADERS})
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework AppKit")
+    endif()
+endif()
+
 if (UNIX AND NOT APPLE)
     set(ads_SRCS linux/FloatingWidgetTitleBar.cpp ${ads_SRCS})
     set(ads_HEADERS linux/FloatingWidgetTitleBar.h ${ads_HEADERS})
@@ -103,6 +128,8 @@ target_link_libraries(${library_name} PUBLIC Qt${QT_VERSION_MAJOR}::Core
 
 if(UNIX AND NOT APPLE AND QT_VERSION_MAJOR STREQUAL "6")
     target_link_libraries(${library_name} PRIVATE Qt6::GuiPrivate) #needed for <qpa/qplatformnativeinterface.h>
+if (APPLE) 
+    target_link_libraries(${library_name} PUBLIC ${COCOA_LIBRARY})
 endif()
 
 if (UNIX AND NOT APPLE)

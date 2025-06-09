@@ -16,12 +16,6 @@
 #pragma comment(lib, "user32.lib")
 
 #include <QOperatingSystemVersion>
-#include <QLabel>
-#include <QToolBar>
-#include <QMenuBar>
-#include <QPushButton>
-#include <QEvent>
-#include <QVBoxLayout>
 
 constexpr int CUSTOM_FRAME_THICKNESS = 1;
 constexpr int TITLE_BAR_HEIGHT = 32;
