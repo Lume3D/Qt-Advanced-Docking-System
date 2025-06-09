@@ -1313,7 +1313,12 @@ bool CFloatingDockContainer::event(QEvent *e)
 #if (ADS_DEBUG_LEVEL > 0)
 	qDebug() << QTime::currentTime() << "CFloatingDockContainer::event " << e->type();
 #endif
+
+#if defined(ADS_STYLED_WINDOW)
+    return StyledWindow::event(e);
+#else
 	return QWidget::event(e);
+#endif
 }
 
 

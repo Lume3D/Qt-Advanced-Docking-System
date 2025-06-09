@@ -92,6 +92,14 @@ LIBS += -lxcb
 QT += gui-private
 }
 
+mac {
+    SOURCES += customwidgets/window/macos_helper.mm
+    HEADERS += customwidgets/window/macos_helper.h
+
+    LIBS += -framework Foundation -framework Cocoa
+    INCLUDEPATH += /System/Library/Frameworks/Foundation.framework/Versions/C/Headers
+}
+
 isEmpty(PREFIX){
 	PREFIX=../installed
 	warning("Install Prefix not set")
