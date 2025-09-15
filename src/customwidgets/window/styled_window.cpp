@@ -7,8 +7,10 @@
 #include <QList>
 #include <QMenuBar>
 #include <QPushButton>
+#include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QWindow>
 
 #ifdef Q_OS_WIN
 #    include "widget_event_helper.h"
@@ -52,6 +54,11 @@ struct StyledWindow::StyledWindowPrivate
     float displayScale_{1.f};
 
     bool initResize_{false};
+
+#ifdef Q_OS_WIN
+    QWindow* proxyWindow_;
+    HMENU sysMenu_{nullptr};
+#endif
 };
 
 StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
@@ -65,6 +72,9 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
 
 StyledWindow::~StyledWindow()
 {
+#ifdef Q_OS_WIN
+    delete d->proxyWindow_;
+#endif
     delete d;
 }
 
@@ -74,6 +84,12 @@ void StyledWindow::init()
     d->resizeable_ = true;
     d->displayScale_ = devicePixelRatioF();
 #ifdef Q_OS_WIN
+
+    QTimer::singleShot(0, [this]() {
+        d->proxyWindow_ = new QWindow();
+        d->proxyWindow_->setBaseSize({0, 0});
+        d->sysMenu_ = GetSystemMenu((HWND)d->proxyWindow_->winId(), FALSE);
+    });
     d->titleBar_ = Q_NULLPTR;
     d->borderWidth_ = 5;
     setResizeableAreaWidth(8);
@@ -82,6 +98,7 @@ void StyledWindow::init()
     flags |= Qt::FramelessWindowHint;
     flags |= Qt::WindowMinMaxButtonsHint;
     flags |= Qt::WindowCloseButtonHint;
+    flags |= Qt::WindowTitleHint;
     setWindowFlags(flags);
 
     enableAcrylicWindow(true);
@@ -148,10 +165,7 @@ void StyledWindow::initWindowTitle()
     if (!d->logo_)
     {
         auto lumeIcon = QIcon(":/lume_icon.svg");
-        d->logo_ = new QPushButton(lumeIcon, "", this);
-        d->logo_->setFixedWidth(21);
-        d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-        d->logo_->setProperty("class", "menuWindowBt");
+        setIcon(lumeIcon);
         leftLayout->addWidget(d->logo_, 0, Qt::AlignLeft);
         d->menuHelper_ = new WidgetEventHelper(this);
         d->menuHelper_->SetWidget(d->logo_);
@@ -301,6 +315,21 @@ void StyledWindow::setIcon(QIcon icon)
     d->logo_->setFixedWidth(21);
     d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     d->logo_->setProperty("class", "menuWindowBt");
+
+    QObject::connect(d->logo_, &QAbstractButton::released, this, [this]() {
+        RECT rect;
+        const auto dpr = this->devicePixelRatioF();
+        GetWindowRect(reinterpret_cast<HWND>(winId()), &rect);
+        QPoint point(rect.left, rect.top);
+        if (d->logo_)
+        {
+            const auto geometry = d->logo_->geometry().bottomLeft();
+            point = QPoint(point.x() + geometry.x() + (dpr * 4),
+                           point.y() + geometry.y() + (dpr * 12));
+        }
+
+        showSystemMenu(this, point);
+    });
 #endif
 }
 
@@ -682,6 +711,36 @@ void StyledWindow::showFullScreen()
 #        define WM_NCUAHDRAWFRAME (0x00AF)
 #    endif
 
+void StyledWindow::showSystemMenu(QWidget* widget, const QPoint& pos)
+{
+    auto hwnd = reinterpret_cast<HWND>(widget->effectiveWinId());
+    if (d->sysMenu_)
+    {
+        UpdateWindow(hwnd);
+
+        if (this->isMaximized())
+        {
+            EnableMenuItem(d->sysMenu_, SC_MOVE, MF_BYCOMMAND | MF_GRAYED);
+            EnableMenuItem(d->sysMenu_, SC_SIZE, MF_BYCOMMAND | MF_GRAYED);
+            EnableMenuItem(d->sysMenu_, SC_MAXIMIZE, MF_BYCOMMAND | MF_GRAYED);
+            EnableMenuItem(d->sysMenu_, SC_RESTORE, MF_BYCOMMAND | MF_ENABLED);
+        }
+        else
+        {
+            EnableMenuItem(d->sysMenu_, SC_MOVE, MF_BYCOMMAND | MF_ENABLED);
+            EnableMenuItem(d->sysMenu_, SC_SIZE, MF_BYCOMMAND | MF_ENABLED);
+            EnableMenuItem(d->sysMenu_, SC_MAXIMIZE, MF_BYCOMMAND | MF_ENABLED);
+            EnableMenuItem(d->sysMenu_, SC_RESTORE, MF_BYCOMMAND | MF_GRAYED);
+        }
+        int command = TrackPopupMenu(d->sysMenu_,
+                                     TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD,
+                                     pos.x(), pos.y(), 0, hwnd, nullptr);
+        if (command)
+        {
+            SendMessage(hwnd, WM_SYSCOMMAND, command, 0);
+        }
+    }
+}
 bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                                long* result)
 {
@@ -693,12 +752,28 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     switch (msg->message)
     {
+    case WM_SYSKEYDOWN:
+    {
+        if (msg->wParam == VK_SPACE)
+        {
+            RECT rect;
+            const auto dpr = this->devicePixelRatioF();
+
+            GetWindowRect(reinterpret_cast<HWND>(winId()), &rect);
+            QPoint point(rect.left, rect.top);
+            if (d->logo_)
+            {
+                const auto geometry = d->logo_->geometry().bottomLeft();
+                point = QPoint(point.x() + geometry.x() + (dpr * 4),
+                               point.y() + geometry.y() + (dpr * 12));
+            }
+
+            showSystemMenu(this, point);
+        }
+        break;
+    }
     case WM_NCCALCSIZE:
     {
-        // NCCALCSIZE_PARAMS& params =
-        //     *reinterpret_cast<NCCALCSIZE_PARAMS*>(msg->lParam);
-        // if (params.rgrc[0].top != 0)
-        //     params.rgrc[0].top = 0;
         *result = WVR_REDRAW;
         return true;
     }
@@ -934,26 +1009,6 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         return false;
     }
 
-    // case WM_ACTIVATE:
-    // {
-    //     switch (msg->wParam)
-    //     {
-    //     case WA_INACTIVE:
-    //     {
-    //         qDebug() << windowTitle() << ": WA_INACTIVE";
-    //     }
-    //     break;
-
-    //     case WA_ACTIVE:
-    //     default:
-    //     {
-    //         qDebug() << windowTitle() << ": WA_ACTIVE";
-    //     }
-    //     break;
-    //     }
-    //     return false;
-    // }
-
     // Handle Mouse Event from native Q_OS_WIN and serve the gesture to Qt
     case WM_LBUTTONUP:
     {
@@ -1095,7 +1150,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         d->minimizeHelper_->HandleMouseMove();
         d->maximizeHelper_->HandleMouseMove();
         d->closeHelper_->HandleMouseMove();
-        if (msg->wParam == HTMENU)
+        if (msg->wParam == HTSYSMENU)
         {
             if (d->menuHelper_->HandleMousePress(result))
                 return true;
@@ -1125,7 +1180,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         {
             return false;
         }
-        if (msg->wParam == HTMENU)
+        if (msg->wParam == HTSYSMENU)
         {
             if (d->menuHelper_->HandleMouseRelease(result))
                 return true;
@@ -1180,7 +1235,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     default: break;
     }
 
-    return false;
+    return QMainWindow::nativeEvent(eventType, message, result);
 }
 #endif
 }  // namespace ads
