@@ -55,7 +55,7 @@ struct StyledWindow::StyledWindowPrivate
 
     bool initResize_{false};
 
-#ifdef _WIN32
+#ifdef Q_OS_WIN
     QWindow* proxyWindow_;
     HMENU sysMenu_{nullptr};
 #endif
@@ -72,7 +72,9 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
 
 StyledWindow::~StyledWindow()
 {
+#ifdef Q_OS_WIN
     delete d->proxyWindow_;
+#endif
     delete d;
 }
 
