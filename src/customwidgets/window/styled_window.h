@@ -45,8 +45,8 @@ public:
 private:
     void init();
     void initWindowTitle();
-
 #ifdef Q_OS_WIN
+    void showSystemMenu(QWidget* widget, const QPoint& pos);
 public slots:
     void showFullScreen();
 
