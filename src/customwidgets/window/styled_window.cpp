@@ -715,6 +715,21 @@ void StyledWindow::showSystemMenu(QWidget* widget, const QPoint& pos)
     if (d->sysMenu_)
     {
         UpdateWindow(hwnd);
+
+        if (this->isMaximized())
+        {
+            EnableMenuItem(d->sysMenu_, SC_MOVE, MF_BYCOMMAND | MF_GRAYED);
+            EnableMenuItem(d->sysMenu_, SC_SIZE, MF_BYCOMMAND | MF_GRAYED);
+            EnableMenuItem(d->sysMenu_, SC_MAXIMIZE, MF_BYCOMMAND | MF_GRAYED);
+            EnableMenuItem(d->sysMenu_, SC_RESTORE, MF_BYCOMMAND | MF_ENABLED);
+        }
+        else
+        {
+            EnableMenuItem(d->sysMenu_, SC_MOVE, MF_BYCOMMAND | MF_ENABLED);
+            EnableMenuItem(d->sysMenu_, SC_SIZE, MF_BYCOMMAND | MF_ENABLED);
+            EnableMenuItem(d->sysMenu_, SC_MAXIMIZE, MF_BYCOMMAND | MF_ENABLED);
+            EnableMenuItem(d->sysMenu_, SC_RESTORE, MF_BYCOMMAND | MF_GRAYED);
+        }
         int command = TrackPopupMenu(d->sysMenu_,
                                      TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD,
                                      pos.x(), pos.y(), 0, hwnd, nullptr);
