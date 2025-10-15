@@ -17,7 +17,7 @@
 
 #include <QOperatingSystemVersion>
 
-constexpr int CUSTOM_FRAME_THICKNESS = 1;
+constexpr int FRAME_THICKNESS = 2;
 constexpr int TITLE_BAR_HEIGHT = 32;
 #define W_10 (QSysInfo::productVersion().contains("10") && QOperatingSystemVersion::current().microVersion() < 21327)
 #undef MIN
