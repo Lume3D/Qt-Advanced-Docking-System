@@ -20,6 +20,7 @@
 #ifdef Q_OS_MACOS
 #    include "macos_helper.h"
 #endif
+
 namespace ads
 {
 struct StyledWindow::StyledWindowPrivate
@@ -92,13 +93,12 @@ void StyledWindow::init()
     });
     d->titleBar_ = Q_NULLPTR;
     d->borderWidth_ = 5;
-    setResizeableAreaWidth(8);
+    setResizeableAreaWidth(5);
     Qt::WindowFlags flags;
     flags |= Qt::Window;
     flags |= Qt::FramelessWindowHint;
     flags |= Qt::WindowMinMaxButtonsHint;
     flags |= Qt::WindowCloseButtonHint;
-    flags |= Qt::WindowTitleHint;
     setWindowFlags(flags);
 
     enableAcrylicWindow(true);
@@ -192,21 +192,17 @@ void StyledWindow::initWindowTitle()
     d->divider_ = new QWidget(this);
     d->divider_->setProperty("class", "toolbar-divider");
     rightLayout->addWidget(d->divider_, 0, Qt::AlignRight | Qt::AlignVCenter);
+    d->divider_->setVisible(false);
 #endif
     d->windowHint_->addWidget(d->rightLayoutWidget_);
 
     this->setProperty("class", "window-main");
     this->addToolBarBreak();
 #ifdef Q_OS_WIN
-
+    this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
+                                      FRAME_THICKNESS, FRAME_THICKNESS));
     if (W_10)
     {
-        if (!this->isMaximized())
-        {
-            this->setContentsMargins(
-                QMargins(CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS,
-                         CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS));
-        }
         this->setProperty("class", "window-10-main");
     }
 
@@ -266,9 +262,11 @@ bool StyledWindow::event(QEvent* event)
     {
         if (d->windowHint_)
         {
-            d->windowHint_->resize(width() - d->frames_.right()
-                                       - d->frames_.left(),
-                                   d->windowHint_->height());
+            d->windowHint_->resize(
+                width() - d->frames_.right() - d->frames_.left()
+                    - d->margins_.right() - d->margins_.left(),
+                d->windowHint_->height() - d->frames_.top() - d->frames_.bottom()
+                    - d->margins_.top() - d->margins_.bottom());
         }
     }
 
@@ -344,6 +342,10 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
             auto in = layout->indexOf(d->divider_);
             layout->insertWidget(in - 1, toolbar, 0,
                                  Qt::AlignRight | Qt::AlignVCenter);
+            if (!toolbar->children().empty())
+            {
+                d->divider_->setVisible(true);
+            };
         }
 #else
         if (layout)
@@ -492,14 +494,10 @@ void StyledWindow::constructHintButtons()
                         }
                         if (this->isMaximized())
                         {
-                            if (W_10)
-                            {
-                                this->setContentsMargins(
-                                    QMargins(CUSTOM_FRAME_THICKNESS,
-                                             CUSTOM_FRAME_THICKNESS,
-                                             CUSTOM_FRAME_THICKNESS,
-                                             CUSTOM_FRAME_THICKNESS));
-                            }
+                            this->setContentsMargins(
+                                QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
+                                         FRAME_THICKNESS, FRAME_THICKNESS));
+
                             this->showNormal();
                         }
                         else
