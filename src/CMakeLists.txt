@@ -72,6 +72,7 @@ set(ads_HEADERS
     AutoHideDockContainer.h
     PushButton.h
     ResizeHandle.h
+
 )
 
 if (BUILD_ADS_STYLED_WINDOW)
@@ -80,13 +81,11 @@ if (BUILD_ADS_STYLED_WINDOW)
         ${ads_SRCS} )
     set(ads_HEADERS     
         customwidgets/window/styled_window.h
+        customwidgets/window/utils.h
         ${ads_HEADERS})
     if (WIN32) 
         set(ads_SRCS customwidgets/window/widget_event_helper.cpp ${ads_SRCS} )
-        set(ads_HEADERS 
-            customwidgets/window/widget_event_helper.h 
-            customwidgets/window/win_utils.h 
-            ${ads_HEADERS})
+        set(ads_HEADERS customwidgets/window/widget_event_helper.h ${ads_HEADERS})
         add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     endif()
     if (APPLE) 

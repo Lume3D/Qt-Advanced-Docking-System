@@ -2,24 +2,40 @@
 
 #include "styled_window.h"
 
-#include <QEvent>
-#include <QLabel>
+#include <QApplication>
 #include <QList>
-#include <QMenuBar>
-#include <QPushButton>
+#include <QMouseEvent>
 #include <QTimer>
-#include <QToolBar>
-#include <QVBoxLayout>
-#include <QWindow>
+
+#include "utils.h"
 
 #ifdef Q_OS_WIN
 #    include "widget_event_helper.h"
-#    include "win_utils.h"
 #endif
 
 #ifdef Q_OS_MACOS
 #    include "macos_helper.h"
 #endif
+namespace
+{
+
+#ifdef Q_OS_WIN
+
+bool updateNativeWindowMargins(HWND hwnd, QMargins margins)
+{
+    MARGINS winMargins;
+
+    winMargins.cxLeftWidth = margins.left();
+    winMargins.cxRightWidth = margins.right();
+    winMargins.cyBottomHeight = margins.bottom();
+    winMargins.cyTopHeight = margins.top();
+
+    auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
+    return SUCCEEDED(hr);
+}
+#endif
+
+}  // namespace
 
 namespace ads
 {
@@ -35,7 +51,7 @@ struct StyledWindow::StyledWindowPrivate
     QMenuBar* menuBar_{nullptr};
     QToolBar* windowHint_{nullptr};
     QLabel* titleLabel_{nullptr};
-    QString windowTitle_{"ADS"};
+    QString windowTitle_{""};
 
     QWidget* titleBar_{nullptr};
     QList<QWidget*> whiteList_;
@@ -55,11 +71,6 @@ struct StyledWindow::StyledWindowPrivate
     float displayScale_{1.f};
 
     bool initResize_{false};
-
-#ifdef Q_OS_WIN
-    QWindow* proxyWindow_;
-    HMENU sysMenu_{nullptr};
-#endif
 };
 
 StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
@@ -67,15 +78,12 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
     : QMainWindow(parent, f)
 {
     d = new StyledWindowPrivate();
-    QMainWindow::setWindowTitle(windowTitle);
+    this->setWindowTitle(windowTitle);
     init();
 }
 
 StyledWindow::~StyledWindow()
 {
-#ifdef Q_OS_WIN
-    delete d->proxyWindow_;
-#endif
     delete d;
 }
 
@@ -85,25 +93,39 @@ void StyledWindow::init()
     d->resizeable_ = true;
     d->displayScale_ = devicePixelRatioF();
 #ifdef Q_OS_WIN
-
-    QTimer::singleShot(0, [this]() {
-        d->proxyWindow_ = new QWindow();
-        d->proxyWindow_->setBaseSize({0, 0});
-        d->sysMenu_ = GetSystemMenu((HWND)d->proxyWindow_->winId(), FALSE);
-    });
     d->titleBar_ = Q_NULLPTR;
     d->borderWidth_ = 5;
-    setResizeableAreaWidth(5);
+    setResizeableAreaWidth(8);
+#endif
     Qt::WindowFlags flags;
     flags |= Qt::Window;
-    flags |= Qt::FramelessWindowHint;
     flags |= Qt::WindowMinMaxButtonsHint;
     flags |= Qt::WindowCloseButtonHint;
+#ifdef Q_OS_WIN
+    flags |= Qt::FramelessWindowHint;
+#elif defined(__APPLE__)
+    flags |= Qt::WindowFullscreenButtonHint;
+    flags |= Qt::CustomizeWindowHint;
+#endif
     setWindowFlags(flags);
-
+#ifdef Q_OS_WIN
     enableAcrylicWindow(true);
 #endif
     initWindowTitle();
+
+    HideTitleBar(this->effectiveWinId());
+}
+
+void StyledWindow::setWindowTitle(QString title)
+{
+    if (title.length() > 0)
+    {
+#if defined(Q_OS_LINUX)
+        QMainWindow::setWindowTitle(title);
+#else
+        d->titleLabel_->setText(title);
+#endif
+    }
 }
 
 void StyledWindow::setupMenuBar(QMenuBar* menuBar)
@@ -128,7 +150,57 @@ void StyledWindow::setupMenuBar(QMenuBar* menuBar)
     this->setMenuBar(menuBar);
 #endif
 }
-
+bool StyledWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (qobject_cast<QToolBar*>(watched))
+    {
+        if (event->type() == QEvent::MouseButtonPress)
+        {
+            auto* e = static_cast<QMouseEvent*>(event);
+            if (e && e->button() == Qt::LeftButton)
+            {
+                auto nonClientEvent = QMouseEvent(
+                    QEvent::NonClientAreaMouseButtonPress, e->localPos(),
+                    e->button(), e->buttons(), e->modifiers());
+                QApplication::sendEvent(this, &nonClientEvent);
+            }
+            if (e && !this->isActiveWindow())
+            {
+                auto event = QEvent(QEvent::WindowActivate);
+                QApplication::sendEvent(this, &event);
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonRelease)
+        {
+            auto* e = static_cast<QMouseEvent*>(event);
+            if (e && e->button() == Qt::LeftButton)
+            {
+                auto nonClientEvent =
+                    QEvent(QEvent::NonClientAreaMouseButtonRelease);
+                QApplication::sendEvent(this, &nonClientEvent);
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonDblClick)
+        {
+            auto* e = static_cast<QMouseEvent*>(event);
+            if (e && e->button() == Qt::LeftButton)
+            {
+                auto nonClientEvent =
+                    QEvent(QEvent::NonClientAreaMouseButtonDblClick);
+                QApplication::sendEvent(this, &nonClientEvent);
+                if (isMaximized())
+                {
+                    showNormal();
+                }
+                else
+                {
+                    showMaximized();
+                }
+            }
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
 void StyledWindow::initWindowTitle()
 {
     d->leftLayoutWidget_ = new QWidget();
@@ -150,6 +222,8 @@ void StyledWindow::initWindowTitle()
 
     d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
     d->windowHint_->setProperty("class", "window-title-bar");
+    d->windowHint_->installEventFilter(this);
+    d->windowHint_->window()->setContextMenuPolicy(Qt::NoContextMenu);
 #ifdef Q_OS_WIN
 #    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
     d->windowHint_->setProperty("class", "window-title-bar-acrylic");
@@ -165,7 +239,10 @@ void StyledWindow::initWindowTitle()
     if (!d->logo_)
     {
         auto lumeIcon = QIcon(":/lume_icon.svg");
-        setIcon(lumeIcon);
+        d->logo_ = new QPushButton(lumeIcon, "", this);
+        d->logo_->setFixedWidth(21);
+        d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+        d->logo_->setProperty("class", "menuWindowBt");
         leftLayout->addWidget(d->logo_, 0, Qt::AlignLeft);
         d->menuHelper_ = new WidgetEventHelper(this);
         d->menuHelper_->SetWidget(d->logo_);
@@ -175,7 +252,7 @@ void StyledWindow::initWindowTitle()
     d->windowHint_->addWidget(d->leftLayoutWidget_);
 
     d->titleLabel_ = new QLabel(this);
-    d->titleLabel_->setText(this->windowTitle());
+    d->titleLabel_->setText(d->windowTitle_);
     d->titleLabel_->setWordWrap(false);
     auto font = d->titleLabel_->font();
     font.setWeight(font.Bold);
@@ -183,26 +260,26 @@ void StyledWindow::initWindowTitle()
     d->titleLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     // d->titleLabel_->setMaximumWidth(292);  // Todo: Make sure we have a good
     //                                        // maximum width
-
-    connect(this, &QMainWindow::windowTitleChanged, this,
-            [this](QString title) { this->d->titleLabel_->setText(title); });
-
     d->windowHint_->addWidget(d->titleLabel_);
 #ifdef Q_OS_WIN
     d->divider_ = new QWidget(this);
     d->divider_->setProperty("class", "toolbar-divider");
     rightLayout->addWidget(d->divider_, 0, Qt::AlignRight | Qt::AlignVCenter);
-    d->divider_->setVisible(false);
 #endif
     d->windowHint_->addWidget(d->rightLayoutWidget_);
 
     this->setProperty("class", "window-main");
     this->addToolBarBreak();
 #ifdef Q_OS_WIN
-    this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
-                                      FRAME_THICKNESS, FRAME_THICKNESS));
+
     if (W_10)
     {
+        if (!this->isMaximized())
+        {
+            this->setContentsMargins(
+                QMargins(CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS,
+                         CUSTOM_FRAME_THICKNESS, CUSTOM_FRAME_THICKNESS));
+        }
         this->setProperty("class", "window-10-main");
     }
 
@@ -213,7 +290,6 @@ void StyledWindow::initWindowTitle()
 #endif
     setFocusProxy(d->windowHint_);
 }
-
 bool StyledWindow::event(QEvent* event)
 {
     auto native = QMainWindow::event(event);
@@ -262,11 +338,9 @@ bool StyledWindow::event(QEvent* event)
     {
         if (d->windowHint_)
         {
-            d->windowHint_->resize(
-                width() - d->frames_.right() - d->frames_.left()
-                    - d->margins_.right() - d->margins_.left(),
-                d->windowHint_->height() - d->frames_.top() - d->frames_.bottom()
-                    - d->margins_.top() - d->margins_.bottom());
+            d->windowHint_->resize(width() - d->frames_.right()
+                                       - d->frames_.left(),
+                                   d->windowHint_->height());
         }
     }
 
@@ -278,18 +352,13 @@ bool StyledWindow::event(QEvent* event)
                                             ":/icons/Icon_Maximize_Window.svg" :
                                             ":/icons/Icon_Restore_Window.svg")
                                       .pixmap(18, 18));
+            6
         }
     }
 #endif
 #ifdef Q_OS_MACOS
-    auto type = event->type();
-    if (event->type() == QEvent::WindowActivate)
+    if (event->type() != QEvent::DeferredDelete)
     {
-        // HideTitleBar(this);
-    }
-    if (event->type() == QEvent::Show)
-    {
-        this->setUnifiedTitleAndToolBarOnMac(true);
         HideTitleBar(this->winId());
     }
 #endif
@@ -313,21 +382,6 @@ void StyledWindow::setIcon(QIcon icon)
     d->logo_->setFixedWidth(21);
     d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     d->logo_->setProperty("class", "menuWindowBt");
-
-    QObject::connect(d->logo_, &QAbstractButton::released, this, [this]() {
-        RECT rect;
-        const auto dpr = this->devicePixelRatioF();
-        GetWindowRect(reinterpret_cast<HWND>(winId()), &rect);
-        QPoint point(rect.left, rect.top);
-        if (d->logo_)
-        {
-            const auto geometry = d->logo_->geometry().bottomLeft();
-            point = QPoint(point.x() + geometry.x() + (dpr * 4),
-                           point.y() + geometry.y() + (dpr * 12));
-        }
-
-        showSystemMenu(this, point);
-    });
 #endif
 }
 
@@ -342,10 +396,6 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
             auto in = layout->indexOf(d->divider_);
             layout->insertWidget(in - 1, toolbar, 0,
                                  Qt::AlignRight | Qt::AlignVCenter);
-            if (!toolbar->children().empty())
-            {
-                d->divider_->setVisible(true);
-            };
         }
 #else
         if (layout)
@@ -494,10 +544,14 @@ void StyledWindow::constructHintButtons()
                         }
                         if (this->isMaximized())
                         {
-                            this->setContentsMargins(
-                                QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
-                                         FRAME_THICKNESS, FRAME_THICKNESS));
-
+                            if (W_10)
+                            {
+                                this->setContentsMargins(
+                                    QMargins(CUSTOM_FRAME_THICKNESS,
+                                             CUSTOM_FRAME_THICKNESS,
+                                             CUSTOM_FRAME_THICKNESS,
+                                             CUSTOM_FRAME_THICKNESS));
+                            }
                             this->showNormal();
                         }
                         else
@@ -691,6 +745,19 @@ void StyledWindow::enableAcrylicWindow(bool enable)
 #    endif
 }
 
+bool StyledWindow::updateNativeWindowMargins(HWND hwnd, QMargins margins)
+{
+    MARGINS winMargins;
+
+    winMargins.cxLeftWidth = margins.left();
+    winMargins.cxRightWidth = margins.right();
+    winMargins.cyBottomHeight = margins.bottom();
+    winMargins.cyTopHeight = margins.top();
+
+    auto hr = DwmExtendFrameIntoClientArea(hwnd, &winMargins);
+    return SUCCEEDED(hr);
+}
+
 void StyledWindow::showFullScreen()
 {
     if (isMaximized())
@@ -709,36 +776,6 @@ void StyledWindow::showFullScreen()
 #        define WM_NCUAHDRAWFRAME (0x00AF)
 #    endif
 
-void StyledWindow::showSystemMenu(QWidget* widget, const QPoint& pos)
-{
-    auto hwnd = reinterpret_cast<HWND>(widget->effectiveWinId());
-    if (d->sysMenu_)
-    {
-        UpdateWindow(hwnd);
-
-        if (this->isMaximized())
-        {
-            EnableMenuItem(d->sysMenu_, SC_MOVE, MF_BYCOMMAND | MF_GRAYED);
-            EnableMenuItem(d->sysMenu_, SC_SIZE, MF_BYCOMMAND | MF_GRAYED);
-            EnableMenuItem(d->sysMenu_, SC_MAXIMIZE, MF_BYCOMMAND | MF_GRAYED);
-            EnableMenuItem(d->sysMenu_, SC_RESTORE, MF_BYCOMMAND | MF_ENABLED);
-        }
-        else
-        {
-            EnableMenuItem(d->sysMenu_, SC_MOVE, MF_BYCOMMAND | MF_ENABLED);
-            EnableMenuItem(d->sysMenu_, SC_SIZE, MF_BYCOMMAND | MF_ENABLED);
-            EnableMenuItem(d->sysMenu_, SC_MAXIMIZE, MF_BYCOMMAND | MF_ENABLED);
-            EnableMenuItem(d->sysMenu_, SC_RESTORE, MF_BYCOMMAND | MF_GRAYED);
-        }
-        int command = TrackPopupMenu(d->sysMenu_,
-                                     TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD,
-                                     pos.x(), pos.y(), 0, hwnd, nullptr);
-        if (command)
-        {
-            SendMessage(hwnd, WM_SYSCOMMAND, command, 0);
-        }
-    }
-}
 bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                                long* result)
 {
@@ -750,28 +787,12 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     switch (msg->message)
     {
-    case WM_SYSKEYDOWN:
-    {
-        if (msg->wParam == VK_SPACE)
-        {
-            RECT rect;
-            const auto dpr = this->devicePixelRatioF();
-
-            GetWindowRect(reinterpret_cast<HWND>(winId()), &rect);
-            QPoint point(rect.left, rect.top);
-            if (d->logo_)
-            {
-                const auto geometry = d->logo_->geometry().bottomLeft();
-                point = QPoint(point.x() + geometry.x() + (dpr * 4),
-                               point.y() + geometry.y() + (dpr * 12));
-            }
-
-            showSystemMenu(this, point);
-        }
-        break;
-    }
     case WM_NCCALCSIZE:
     {
+        // NCCALCSIZE_PARAMS& params =
+        //     *reinterpret_cast<NCCALCSIZE_PARAMS*>(msg->lParam);
+        // if (params.rgrc[0].top != 0)
+        //     params.rgrc[0].top = 0;
         *result = WVR_REDRAW;
         return true;
     }
@@ -1007,6 +1028,26 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         return false;
     }
 
+    // case WM_ACTIVATE:
+    // {
+    //     switch (msg->wParam)
+    //     {
+    //     case WA_INACTIVE:
+    //     {
+    //         qDebug() << windowTitle() << ": WA_INACTIVE";
+    //     }
+    //     break;
+
+    //     case WA_ACTIVE:
+    //     default:
+    //     {
+    //         qDebug() << windowTitle() << ": WA_ACTIVE";
+    //     }
+    //     break;
+    //     }
+    //     return false;
+    // }
+
     // Handle Mouse Event from native Q_OS_WIN and serve the gesture to Qt
     case WM_LBUTTONUP:
     {
@@ -1148,7 +1189,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         d->minimizeHelper_->HandleMouseMove();
         d->maximizeHelper_->HandleMouseMove();
         d->closeHelper_->HandleMouseMove();
-        if (msg->wParam == HTSYSMENU)
+        if (msg->wParam == HTMENU)
         {
             if (d->menuHelper_->HandleMousePress(result))
                 return true;
@@ -1178,7 +1219,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         {
             return false;
         }
-        if (msg->wParam == HTSYSMENU)
+        if (msg->wParam == HTMENU)
         {
             if (d->menuHelper_->HandleMouseRelease(result))
                 return true;
@@ -1233,7 +1274,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     default: break;
     }
 
-    return QMainWindow::nativeEvent(eventType, message, result);
+    return false;
 }
 #endif
 }  // namespace ads

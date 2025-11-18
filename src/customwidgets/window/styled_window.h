@@ -36,17 +36,19 @@ public:
                           QString windowTitle = "");
     ~StyledWindow();
 
+    void init();
+    void setWindowTitle(QString title);
     void setupMenuBar(QMenuBar* menuBar) override;
     QMenuBar* menuBar() override;
     void setIcon(QIcon icon) override;
     void setSubToolbar(QToolBar* toolbar) override;
-    bool event(QEvent* event) override;
 
-private:
-    void init();
+protected:
+    bool event(QEvent* event) override;
     void initWindowTitle();
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 #ifdef Q_OS_WIN
-    void showSystemMenu(QWidget* widget, const QPoint& pos);
 public slots:
     void showFullScreen();
 
@@ -59,6 +61,7 @@ protected:
     void addIgnoreWidget(QWidget* widget);
     void setContentsMargins(const QMargins& margins);
     void setContentsMargins(int left, int top, int right, int bottom);
+    bool updateNativeWindowMargins(HWND hwnd, QMargins margins);
     void constructHintButtons();
     bool nativeEvent(const QByteArray& eventType, void* message,
                      long* result) override;
