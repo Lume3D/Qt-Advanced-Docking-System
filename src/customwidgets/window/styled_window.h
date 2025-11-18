@@ -46,6 +46,7 @@ public:
 protected:
     bool event(QEvent* event) override;
     void initWindowTitle();
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 #ifdef Q_OS_WIN
 public slots:

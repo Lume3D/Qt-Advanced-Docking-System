@@ -2,7 +2,10 @@
 
 #include "styled_window.h"
 
+#include <QApplication>
 #include <QList>
+#include <QMouseEvent>
+#include <QTimer>
 
 #include "utils.h"
 
@@ -93,16 +96,24 @@ void StyledWindow::init()
     d->titleBar_ = Q_NULLPTR;
     d->borderWidth_ = 5;
     setResizeableAreaWidth(8);
+#endif
     Qt::WindowFlags flags;
     flags |= Qt::Window;
-    flags |= Qt::FramelessWindowHint;
     flags |= Qt::WindowMinMaxButtonsHint;
     flags |= Qt::WindowCloseButtonHint;
+#ifdef Q_OS_WIN
+    flags |= Qt::FramelessWindowHint;
+#elif defined(__APPLE__)
+    flags |= Qt::WindowFullscreenButtonHint;
+    flags |= Qt::CustomizeWindowHint;
+#endif
     setWindowFlags(flags);
-
+#ifdef Q_OS_WIN
     enableAcrylicWindow(true);
 #endif
     initWindowTitle();
+
+    HideTitleBar(this->effectiveWinId());
 }
 
 void StyledWindow::setWindowTitle(QString title)
@@ -139,7 +150,57 @@ void StyledWindow::setupMenuBar(QMenuBar* menuBar)
     this->setMenuBar(menuBar);
 #endif
 }
-
+bool StyledWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    if (qobject_cast<QToolBar*>(watched))
+    {
+        if (event->type() == QEvent::MouseButtonPress)
+        {
+            auto* e = static_cast<QMouseEvent*>(event);
+            if (e && e->button() == Qt::LeftButton)
+            {
+                auto nonClientEvent = QMouseEvent(
+                    QEvent::NonClientAreaMouseButtonPress, e->localPos(),
+                    e->button(), e->buttons(), e->modifiers());
+                QApplication::sendEvent(this, &nonClientEvent);
+            }
+            if (e && !this->isActiveWindow())
+            {
+                auto event = QEvent(QEvent::WindowActivate);
+                QApplication::sendEvent(this, &event);
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonRelease)
+        {
+            auto* e = static_cast<QMouseEvent*>(event);
+            if (e && e->button() == Qt::LeftButton)
+            {
+                auto nonClientEvent =
+                    QEvent(QEvent::NonClientAreaMouseButtonRelease);
+                QApplication::sendEvent(this, &nonClientEvent);
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonDblClick)
+        {
+            auto* e = static_cast<QMouseEvent*>(event);
+            if (e && e->button() == Qt::LeftButton)
+            {
+                auto nonClientEvent =
+                    QEvent(QEvent::NonClientAreaMouseButtonDblClick);
+                QApplication::sendEvent(this, &nonClientEvent);
+                if (isMaximized())
+                {
+                    showNormal();
+                }
+                else
+                {
+                    showMaximized();
+                }
+            }
+        }
+    }
+    return QMainWindow::eventFilter(watched, event);
+}
 void StyledWindow::initWindowTitle()
 {
     d->leftLayoutWidget_ = new QWidget();
@@ -161,6 +222,8 @@ void StyledWindow::initWindowTitle()
 
     d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
     d->windowHint_->setProperty("class", "window-title-bar");
+    d->windowHint_->installEventFilter(this);
+    d->windowHint_->window()->setContextMenuPolicy(Qt::NoContextMenu);
 #ifdef Q_OS_WIN
 #    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
     d->windowHint_->setProperty("class", "window-title-bar-acrylic");
@@ -227,7 +290,6 @@ void StyledWindow::initWindowTitle()
 #endif
     setFocusProxy(d->windowHint_);
 }
-
 bool StyledWindow::event(QEvent* event)
 {
     auto native = QMainWindow::event(event);
@@ -290,18 +352,13 @@ bool StyledWindow::event(QEvent* event)
                                             ":/icons/Icon_Maximize_Window.svg" :
                                             ":/icons/Icon_Restore_Window.svg")
                                       .pixmap(18, 18));
+            6
         }
     }
 #endif
 #ifdef Q_OS_MACOS
-    auto type = event->type();
-    if (event->type() == QEvent::WindowActivate)
+    if (event->type() != QEvent::DeferredDelete)
     {
-        // HideTitleBar(this);
-    }
-    if (event->type() == QEvent::Show)
-    {
-        this->setUnifiedTitleAndToolBarOnMac(true);
         HideTitleBar(this->winId());
     }
 #endif
