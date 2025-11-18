@@ -40,7 +40,10 @@ public:
     QMenuBar* menuBar() override;
     void setIcon(QIcon icon) override;
     void setSubToolbar(QToolBar* toolbar) override;
+
+protected:
     bool event(QEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void init();

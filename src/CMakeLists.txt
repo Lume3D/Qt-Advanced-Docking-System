@@ -87,6 +87,7 @@ if (BUILD_ADS_STYLED_WINDOW)
         ${ads_SRCS} )
     set(ads_HEADERS     
         customwidgets/window/styled_window.h
+        customwidgets/window/utils.h
         ${ads_HEADERS})
     if (WIN32) 
         set(ads_SRCS customwidgets/window/widget_event_helper.cpp ${ads_SRCS} )
