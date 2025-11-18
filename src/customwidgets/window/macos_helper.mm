@@ -24,5 +24,6 @@ void HideTitleBar(long winId)
                                | NSWindowStyleMaskFullSizeContentView |
                                NSWindowTitleHidden];
     [nativeWindow setTitlebarAppearsTransparent:YES];
+    [nativeWindow setTitleVisibility:NSWindowTitleHidden];
 #endif
 }
