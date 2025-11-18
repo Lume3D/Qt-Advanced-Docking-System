@@ -45,7 +45,6 @@
 #include "DockManager.h"
 #include "DockWidget.h"
 #include "DockOverlay.h"
-#include "customwidgets/window/styled_window.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -57,7 +56,9 @@
 #include "linux/FloatingWidgetTitleBar.h"
 #include <xcb/xcb.h>
 #endif
-
+#ifdef Q_OS_MACOS
+#include <ApplicationServices/ApplicationServices.h>
+#endif
 namespace ads
 {
 #ifdef Q_OS_WIN
@@ -1263,6 +1264,15 @@ bool CFloatingDockContainer::event(QEvent *e)
 		if (e->type() == QEvent::NonClientAreaMouseButtonPress && QGuiApplication::mouseButtons().testFlag(Qt::LeftButton))
 #endif
 		{
+            const auto Config = d->DockManager->configFlags();
+            if (Config.testFlag(CDockManager::eConfigFlag::UseShiftDocking))
+            {
+                const bool ShiftDown = (CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState) & kCGEventFlagMaskShift);
+                if (!ShiftDown)
+                {
+                    break;
+                }
+            }
 			ADS_PRINT("FloatingWidget::event Event::NonClientAreaMouseButtonPress" << e->type());
 			d->DragStartPos = pos();
 			d->setState(DraggingMousePressed);
