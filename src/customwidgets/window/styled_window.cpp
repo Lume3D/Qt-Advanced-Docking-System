@@ -332,6 +332,7 @@ void StyledWindow::initWindowTitle()
     this->setProperty("class", "window-main");
     this->addToolBarBreak();
 #ifdef Q_OS_WIN
+    this->setContentsMargins({0, 0, 0, 0});
     if (W_10)
     {
         this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
@@ -385,14 +386,7 @@ bool StyledWindow::event(QEvent* event)
             style &= ~(CS_VREDRAW | CS_HREDRAW);
             SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
 
-            COLORREF color = RGB(16, 16, 16);
-
-            SetClassLongPtr((HWND)this->winId(), GCLP_HBRBACKGROUND,
-                            (LONG_PTR)CreateSolidBrush(color));
-            SetWindowPos((HWND)this->winId(), NULL, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOREDRAW);
-            RedrawWindow((HWND)this->winId(), NULL, 0,
-                         RDW_INVALIDATE | RDW_ERASE);
+            initWindowBackground(false);
         }
     }
 
@@ -722,7 +716,7 @@ QMenu* StyledWindow::createPopupMenu()
     return nullptr;
 }
 
-void StyledWindow::enableAcrylicWindow(bool enable)
+void StyledWindow::initWindowBackground(bool transparent)
 {
 #    ifdef _WIN32
     HWND hwnd = (HWND)this->window()->winId();
@@ -735,10 +729,11 @@ void StyledWindow::enableAcrylicWindow(bool enable)
 
         if (setWindowCompositionAttribute)
         {
-            DWORD gradient = 0x00101010;
+            DWORD gradient = 0xFF000000;
 
-            ACCENT_POLICY accent = {enable ? ACCENT_ENABLE_ACRYLICBLURBEHIND :
-                                             ACCENT_ENABLE_GRADIENT,
+            ACCENT_POLICY accent = {transparent ?
+                                        ACCENT_ENABLE_ACRYLICBLURBEHIND :
+                                        ACCENT_ENABLE_GRADIENT,
                                     0, 0, 0};
             accent.GradientColor = gradient;
 
@@ -1115,7 +1110,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         // NOTE: Find a way to fix the Window 10 & 11 BUG:
         // https://stackoverflow.com/questions/69715610/how-to-initialize-the-background-color-of-win32-app-to-something-other-than-whit
-        COLORREF color = RGB(16, 16, 16);
+        COLORREF color = RGB(0, 0, 0);
 
         SetClassLongPtr(msg->hwnd, GCLP_HBRBACKGROUND,
                         (LONG_PTR)CreateSolidBrush(color));
