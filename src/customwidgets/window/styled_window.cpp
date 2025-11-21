@@ -78,7 +78,6 @@ typedef BOOL(WINAPI* pfnGetWindowCompositionAttribute)(
 typedef BOOL(WINAPI* pfnSetWindowCompositionAttribute)(
     HWND, WINDOWCOMPOSITIONATTRIBDATA*);
 #endif
-
 };  // namespace
 
 namespace ads
@@ -352,27 +351,6 @@ bool StyledWindow::event(QEvent* event)
 {
     auto native = QMainWindow::event(event);
 #ifdef Q_OS_WIN
-    if (event->type() == QEvent::ScreenChangeInternal)
-    {
-        if (d->displayScale_ != devicePixelRatioF())
-        {
-            d->displayScale_ = devicePixelRatioF();
-
-            // Hack: Force centralWidget to re-calculate size
-            auto cw = centralWidget();
-            if (cw)
-            {
-                SetWindowPos((HWND)cw->effectiveWinId(), NULL, 0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
-                                 | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-                                 | SWP_NOACTIVATE);
-            }
-        }
-        SetWindowPos((HWND)effectiveWinId(), NULL, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
-                         | SWP_FRAMECHANGED | SWP_NOACTIVATE);
-    }
-
     if (event->type() == QEvent::Show)
     {
         if (!d->initResize_)
@@ -387,6 +365,9 @@ bool StyledWindow::event(QEvent* event)
             SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
 
             initWindowBackground(false);
+            // Register for receiving WM_POWERBROADCAST event
+            RegisterSuspendResumeNotification((HANDLE)this->winId(),
+                                              DEVICE_NOTIFY_WINDOW_HANDLE);
         }
     }
 
@@ -690,10 +671,29 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
 
 void StyledWindow::forceRedraw()
 {
-    // Enforce resize with small amount
-    SetWindowPos((HWND)effectiveWinId(), NULL, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
-                     | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    auto* window = windowHandle();
+    auto* screen = QApplication::screenAt(window->geometry().center());
+    if (!screen)
+    {
+        screen = window->screen();
+    }
+    window->setScreen(nullptr);
+    window->requestUpdate();
+    window->setScreen(screen);
+    window->requestUpdate();
+    auto vis = window->visibility();
+    if (window->visibility() != QWindow::Minimized)
+    {
+        window->showMinimized();
+        if (window->visibility() == QWindow::Maximized)
+        {
+            window->showMaximized();
+        }
+        else
+        {
+            window->showNormal();
+        }
+    }
 }
 
 bool StyledWindow::isOutOfWidget(QWidget* widget)
@@ -992,34 +992,47 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         }
         return false;
     }
+    case WM_DISPLAYCHANGE:
+    {
+        qDebug() << ("DISPLAYS Changed\n");
+        // DPI LOST AFTER ADD OR REMOVE DISPLAY
+        QTimer::singleShot(100, [this]() { forceRedraw(); });
 
+        break;
+    }
     case WM_DPICHANGED:
     {
-        auto scale = devicePixelRatioF();
-        if (d->displayScale_ != scale)
-        {
-            d->displayScale_ = scale;
-            if (d->rightLayoutWidget_)
-            {
-                auto minimumWidth = 0;
-                if (d->close_)
-                {
-                    minimumWidth += d->close_->width();
-                }
-                if (d->maximize_)
-                {
-                    minimumWidth += d->maximize_->width();
-                }
-                if (d->minimize_)
-                {
-                    minimumWidth += d->minimize_->width();
-                }
-                d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
-            }
-            adjustSize();
-            update();
-        }
+        qDebug() << ("DPI Changed\n");
 
+        RECT* rect = (RECT*)msg->lParam;
+        SetWindowPos((HWND)msg->hwnd, NULL, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
+                         | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        auto cw = centralWidget();
+        if (cw)
+        {
+            SetWindowPos((HWND)cw->effectiveWinId(), NULL, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+                             | SWP_NOACTIVATE);
+        }
+        if (d->rightLayoutWidget_)
+        {
+            auto minimumWidth = 0;
+            if (d->close_)
+            {
+                minimumWidth += d->close_->width();
+            }
+            if (d->maximize_)
+            {
+                minimumWidth += d->maximize_->width();
+            }
+            if (d->minimize_)
+            {
+                minimumWidth += d->minimize_->width();
+            }
+            d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
+        }
         break;
     }
 
@@ -1299,12 +1312,38 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         const auto windowPos = reinterpret_cast<LPWINDOWPOS>(msg->lParam);
         windowPos->flags |= SWP_NOCOPYBITS;
+        break;
     }
-    break;
-
+    case WM_POWERBROADCAST:
+    {
+        switch (msg->wParam)
+        {
+        case PBT_APMRESUMEAUTOMATIC:
+        {
+            qDebug() << ("PBT_APMRESUMEAUTOMATIC  received\n");
+            // DPI LOST AFTER RESUME FROM SLEEP
+            QTimer::singleShot(100, [this]() { forceRedraw(); });
+            break;
+        }
+        case PBT_APMPOWERSTATUSCHANGE:
+        {
+            qDebug() << ("PBT_APMPOWERSTATUSCHANGE  received\n");
+            break;
+        }
+        case PBT_APMRESUMESUSPEND:
+        {
+            qDebug() << ("PBT_APMRESUMESUSPEND  received\n");
+            break;
+        }
+        case PBT_APMSUSPEND:
+        {
+            qDebug() << ("PBT_APMSUSPEND  received\n");
+            break;
+        }
+        }
+    }
     default: break;
     }
-
     return false;
 }
 #endif

@@ -12,5 +12,5 @@
 #include <QMouseEvent>
 #include <QTimer>
 #include <QWindow>
-
+#include <QScreen>
 #endif
