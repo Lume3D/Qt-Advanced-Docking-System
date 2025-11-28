@@ -69,6 +69,7 @@ protected:
     QMenu* createPopupMenu() override;
 
     void forceRedraw();
+    void updateWindowDpr(float dpr, QRect rect, WId wid);
 
 private slots:
     void onTitleBarDestroyed();
