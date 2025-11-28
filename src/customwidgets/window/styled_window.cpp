@@ -246,12 +246,12 @@ bool StyledWindow::eventFilter(QObject* watched, QEvent* event)
         if (event->type() == QEvent::Resize)
         {
             DWORD gradient = 0x00101010;
-            DwmSetWindowAttribute((HWND)this->winId(), DWMWA_CAPTION_COLOR,
-                                  &gradient, sizeof(gradient));
+            DwmSetWindowAttribute((HWND)this->effectiveWinId(),
+                                  DWMWA_CAPTION_COLOR, &gradient,
+                                  sizeof(gradient));
             auto* widget = qobject_cast<QToolBar*>(watched);
-            MARGINS m = {0, 0, widget->size().height() * this->devicePixelRatio(),
-                         0};
-            DwmExtendFrameIntoClientArea((HWND)this->winId(), &m);
+            MARGINS m = {0, 0, widget->size().height() * d->displayScale_, 0};
+            DwmExtendFrameIntoClientArea((HWND)this->effectiveWinId(), &m);
         }
 #endif
     }
@@ -351,6 +351,15 @@ bool StyledWindow::event(QEvent* event)
 {
     auto native = QMainWindow::event(event);
 #ifdef Q_OS_WIN
+    if (event->type() == QEvent::ScreenChangeInternal)
+    {
+        RECT rect;
+        GetWindowRect((HWND)this->effectiveWinId(), &rect);
+        updateWindowDpr(this->devicePixelRatio(),
+                        QRect(rect.left, rect.top, rect.right - rect.left,
+                              rect.bottom - rect.top),
+                        this->effectiveWinId());
+    }
     if (event->type() == QEvent::Show)
     {
         if (!d->initResize_)
@@ -668,6 +677,48 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
     d->margins_.setRight(right);
     d->margins_.setBottom(bottom);
 }
+void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
+{
+    if (d->displayScale_ != dpr)
+    {
+        qDebug() << ("DPI Changed\n");
+        d->displayScale_ = dpr;
+
+        // Hack: Force centralWidget to re-calculate size
+        auto cw = centralWidget();
+        if (cw)
+        {
+            SetWindowPos((HWND)cw->effectiveWinId(), NULL, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+                             | SWP_NOACTIVATE);
+        }
+        SetWindowPos((HWND)wid, NULL, rect.left(), rect.top(),
+                     rect.right() - rect.left(), rect.bottom() - rect.top(),
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+
+        if (d->rightLayoutWidget_)
+        {
+            auto minimumWidth = 0;
+            if (d->close_)
+            {
+                minimumWidth += d->close_->width();
+            }
+            if (d->maximize_)
+            {
+                minimumWidth += d->maximize_->width();
+            }
+            if (d->minimize_)
+            {
+                minimumWidth += d->minimize_->width();
+            }
+            d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
+        }
+        auto rsEvent =
+            QResizeEvent(d->windowHint_->size(), d->windowHint_->size());
+        QApplication::sendEvent(d->windowHint_, &rsEvent);
+    }
+}
 
 void StyledWindow::forceRedraw()
 {
@@ -681,17 +732,18 @@ void StyledWindow::forceRedraw()
     window->requestUpdate();
     window->setScreen(screen);
     window->requestUpdate();
-    auto vis = window->visibility();
-    if (window->visibility() != QWindow::Minimized)
+    
+    const bool isMax = this->isMaximized();
+    if (!this->isMinimized())
     {
-        window->showMinimized();
-        if (window->visibility() == QWindow::Maximized)
+        this->showMinimized();
+        if (isMax)
         {
-            window->showMaximized();
+            this->showMaximized();
         }
         else
         {
-            window->showNormal();
+            this->showNormal();
         }
     }
 }
@@ -996,43 +1048,18 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         qDebug() << ("DISPLAYS Changed\n");
         // DPI LOST AFTER ADD OR REMOVE DISPLAY
-        QTimer::singleShot(100, [this]() { forceRedraw(); });
+        QTimer::singleShot(10, [this]() { forceRedraw(); });
 
         break;
     }
     case WM_DPICHANGED:
     {
-        qDebug() << ("DPI Changed\n");
-
-        RECT* rect = (RECT*)msg->lParam;
-        SetWindowPos((HWND)msg->hwnd, NULL, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
-                         | SWP_FRAMECHANGED | SWP_NOACTIVATE);
-        auto cw = centralWidget();
-        if (cw)
-        {
-            SetWindowPos((HWND)cw->effectiveWinId(), NULL, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
-                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-                             | SWP_NOACTIVATE);
-        }
-        if (d->rightLayoutWidget_)
-        {
-            auto minimumWidth = 0;
-            if (d->close_)
-            {
-                minimumWidth += d->close_->width();
-            }
-            if (d->maximize_)
-            {
-                minimumWidth += d->maximize_->width();
-            }
-            if (d->minimize_)
-            {
-                minimumWidth += d->minimize_->width();
-            }
-            d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
-        }
+        auto dpr = HIWORD(msg->wParam) / 96;
+        RECT* const rect = (RECT*)msg->lParam;
+        updateWindowDpr(dpr,
+                        QRect(rect->left, rect->top, rect->right - rect->left,
+                              rect->bottom - rect->top),
+                        (WId)msg->hwnd);
         break;
     }
 
@@ -1322,7 +1349,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         {
             qDebug() << ("PBT_APMRESUMEAUTOMATIC  received\n");
             // DPI LOST AFTER RESUME FROM SLEEP
-            QTimer::singleShot(100, [this]() { forceRedraw(); });
+            QTimer::singleShot(10, [this]() { forceRedraw(); });
             break;
         }
         case PBT_APMPOWERSTATUSCHANGE:
