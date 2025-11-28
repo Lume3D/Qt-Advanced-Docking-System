@@ -679,11 +679,7 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
 }
 void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
 {
-    if (d->displayScale_ != dpr)
     {
-        qDebug() << ("DPI Changed\n");
-        d->displayScale_ = dpr;
-
         // Hack: Force centralWidget to re-calculate size
         auto cw = centralWidget();
         if (cw)
@@ -1068,6 +1064,8 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         auto dpr = HIWORD(msg->wParam) / 96;
         RECT* const rect = (RECT*)msg->lParam;
+        qDebug() << ("DPI Changed: ") << dpr;
+        d->displayScale_ = dpr;
         updateWindowDpr(dpr,
                         QRect(rect->left, rect->top, rect->right - rect->left,
                               rect->bottom - rect->top),
