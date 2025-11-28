@@ -732,7 +732,7 @@ void StyledWindow::forceRedraw()
     window->requestUpdate();
     window->setScreen(screen);
     window->requestUpdate();
-    
+
     const bool isMax = this->isMaximized();
     if (!this->isMinimized())
     {
@@ -878,17 +878,29 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     }
     case WM_NCCALCSIZE:
     {
-        if (msg->wParam == true)
+        if (this->isVisible())
         {
-            auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(msg->lParam);
-            if (params->rgrc[0].top != 0)
+            const auto rect =
+                msg->wParam ?
+                    &(reinterpret_cast<LPNCCALCSIZE_PARAMS>(msg->lParam))
+                         ->rgrc[0] :
+                    reinterpret_cast<LPRECT>(msg->lParam);
+
             {
-                params->rgrc[0].top -= 1;
+                const auto oriTop = rect->top;
+                const auto oriResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE,
+                                                        msg->wParam, msg->lParam);
+                if (oriResult)
+                {
+                    *result = oriResult;
+                    return true;
+                }
+                rect->top = oriTop;
             }
-            *result = WVR_REDRAW;
+            *result = false;
             return true;
         }
-        break;
+        return false;
     }
 
     case WM_NCHITTEST:
