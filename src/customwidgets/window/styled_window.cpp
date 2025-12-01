@@ -12,6 +12,8 @@
 #ifdef Q_OS_MACOS
 #    include "macos_helper.h"
 #endif
+namespace
+{};  // namespace
 
 namespace ads
 {
@@ -31,7 +33,7 @@ struct StyledWindow::StyledWindowPrivate
 
     QWidget* titleBar_{nullptr};
     QList<QWidget*> whiteList_;
-    QMargins margins_;
+    QMargins margins_{1, 1, 1, 1};
     QMargins frames_;
     QWidget* divider_{nullptr};
 
@@ -98,11 +100,10 @@ void StyledWindow::init()
     flags |= Qt::WindowFullscreenButtonHint;
     flags |= Qt::CustomizeWindowHint;
 #endif
+
     setWindowFlags(flags);
-#ifdef Q_OS_WIN
-    enableAcrylicWindow(true);
-#endif
     initWindowTitle();
+    this->setAttribute(Qt::WA_TranslucentBackground);
 }
 
 void StyledWindow::setupMenuBar(QMenuBar* menuBar)
@@ -129,9 +130,9 @@ void StyledWindow::setupMenuBar(QMenuBar* menuBar)
 }
 bool StyledWindow::eventFilter(QObject* watched, QEvent* event)
 {
-#ifdef __APPLE__
     if (qobject_cast<QToolBar*>(watched))
     {
+#ifdef __APPLE__
         if (event->type() == QEvent::MouseButtonPress)
         {
             auto* e = static_cast<QMouseEvent*>(event);
@@ -176,8 +177,19 @@ bool StyledWindow::eventFilter(QObject* watched, QEvent* event)
                 }
             }
         }
-    }
+#elif defined(_WIN32)
+        if (event->type() == QEvent::Resize)
+        {
+            DWORD gradient = 0x00101010;
+            DwmSetWindowAttribute((HWND)this->effectiveWinId(),
+                                  DWMWA_CAPTION_COLOR, &gradient,
+                                  sizeof(gradient));
+            auto* widget = qobject_cast<QToolBar*>(watched);
+            MARGINS m = {0, 0, widget->size().height() * d->displayScale_, 0};
+            DwmExtendFrameIntoClientArea((HWND)this->effectiveWinId(), &m);
+        }
 #endif
+    }
 
     return QMainWindow::eventFilter(watched, event);
 }
@@ -202,8 +214,8 @@ void StyledWindow::initWindowTitle()
 
     d->windowHint_ = this->addToolBar(QObject::tr("Window Toolbar"));
     d->windowHint_->setProperty("class", "window-title-bar");
-    d->windowHint_->installEventFilter(this);
     d->windowHint_->window()->setContextMenuPolicy(Qt::NoContextMenu);
+    d->windowHint_->installEventFilter(this);
 #ifdef Q_OS_WIN
 #    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
     d->windowHint_->setProperty("class", "window-title-bar-acrylic");
@@ -214,6 +226,7 @@ void StyledWindow::initWindowTitle()
     d->windowHint_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     d->windowHint_->layout()->setMargin(0);
     d->windowHint_->layout()->setSpacing(0);
+    d->windowHint_->setWindowFlags(Qt::WindowTitleHint);
 
 #ifdef Q_OS_WIN
     if (!d->logo_)
@@ -253,10 +266,11 @@ void StyledWindow::initWindowTitle()
     this->setProperty("class", "window-main");
     this->addToolBarBreak();
 #ifdef Q_OS_WIN
-    this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
-                                      FRAME_THICKNESS, FRAME_THICKNESS));
+    this->setContentsMargins({0, 0, 0, 0});
     if (W_10)
     {
+        this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
+                                          FRAME_THICKNESS, FRAME_THICKNESS));
         this->setProperty("class", "window-10-main");
     }
 
@@ -272,55 +286,32 @@ bool StyledWindow::event(QEvent* event)
 {
     auto native = QMainWindow::event(event);
 #ifdef Q_OS_WIN
-
-    if (event->type() == QEvent::Move)
+    if (event->type() == QEvent::ScreenChangeInternal)
     {
-        if (d->currentScreen_ == nullptr)
-        {
-            d->currentScreen_ = screen();
-        }
-        else if (d->currentScreen_ != screen())
-        {
-            d->currentScreen_ = screen();
-            if (d->displayScale_ != devicePixelRatioF())
-            {
-                d->displayScale_ = devicePixelRatioF();
-
-                // Hack: Force centralWidget to re-calculate size
-                auto cw = centralWidget();
-                if (cw)
-                {
-                    cw->adjustSize();
-                    cw->updateGeometry();
-                }
-            }
-            SetWindowPos((HWND)effectiveWinId(), NULL, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
-                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-                             | SWP_NOACTIVATE);
-        }
+        RECT rect;
+        GetWindowRect((HWND)this->effectiveWinId(), &rect);
+        updateWindowDpr(this->devicePixelRatio(),
+                        QRect(rect.left, rect.top, rect.right - rect.left,
+                              rect.bottom - rect.top),
+                        this->effectiveWinId());
     }
-
     if (event->type() == QEvent::Show)
     {
-        setResizeable(d->resizeable_);
-        constructHintButtons();
         if (!d->initResize_)
         {
             d->initResize_ = true;
-            forceRedraw();
-        }
-    }
 
-    if (event->type() == QEvent::Resize)
-    {
-        if (d->windowHint_)
-        {
-            d->windowHint_->resize(
-                width() - d->frames_.right() - d->frames_.left()
-                    - d->margins_.right() - d->margins_.left(),
-                d->windowHint_->height() - d->frames_.top() - d->frames_.bottom()
-                    - d->margins_.top() - d->margins_.bottom());
+            setResizeable(d->resizeable_);
+            constructHintButtons();
+
+            auto style = GetClassLong((HWND)this->winId(), GCL_STYLE);
+            style &= ~(CS_VREDRAW | CS_HREDRAW);
+            SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
+
+            initWindowBackground(false);
+            // Register for receiving WM_POWERBROADCAST event
+            RegisterSuspendResumeNotification((HANDLE)this->winId(),
+                                              DEVICE_NOTIFY_WINDOW_HANDLE);
         }
     }
 
@@ -542,10 +533,12 @@ void StyledWindow::constructHintButtons()
                         }
                         if (this->isMaximized())
                         {
-                            this->setContentsMargins(
-                                QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
-                                         FRAME_THICKNESS, FRAME_THICKNESS));
-
+                            if (W_10)
+                            {
+                                this->setContentsMargins(
+                                    QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
+                                             FRAME_THICKNESS, FRAME_THICKNESS));
+                            }
                             this->showNormal();
                         }
                         else
@@ -619,12 +612,71 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
     d->margins_.setRight(right);
     d->margins_.setBottom(bottom);
 }
+void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
+{
+    {
+        // Hack: Force centralWidget to re-calculate size
+        auto cw = centralWidget();
+        if (cw)
+        {
+            SetWindowPos((HWND)cw->effectiveWinId(), NULL, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
+                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
+                             | SWP_NOACTIVATE);
+        }
+        SetWindowPos((HWND)wid, NULL, rect.left(), rect.top(),
+                     rect.right() - rect.left(), rect.bottom() - rect.top(),
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+
+        if (d->rightLayoutWidget_)
+        {
+            auto minimumWidth = 0;
+            if (d->close_)
+            {
+                minimumWidth += d->close_->width();
+            }
+            if (d->maximize_)
+            {
+                minimumWidth += d->maximize_->width();
+            }
+            if (d->minimize_)
+            {
+                minimumWidth += d->minimize_->width();
+            }
+            d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
+        }
+        auto rsEvent =
+            QResizeEvent(d->windowHint_->size(), d->windowHint_->size());
+        QApplication::sendEvent(d->windowHint_, &rsEvent);
+    }
+}
 
 void StyledWindow::forceRedraw()
 {
-    // Enforce resize with small amount
-    this->resize(this->size().width() - 1, this->size().height());
-    this->resize(this->size().width() + 1, this->size().height());
+    auto* window = windowHandle();
+    auto* screen = QApplication::screenAt(window->geometry().center());
+    if (!screen)
+    {
+        screen = window->screen();
+    }
+    window->setScreen(nullptr);
+    window->requestUpdate();
+    window->setScreen(screen);
+    window->requestUpdate();
+
+    const bool isMax = this->isMaximized();
+    if (!this->isMinimized())
+    {
+        this->showMinimized();
+        if (isMax)
+        {
+            this->showMaximized();
+        }
+        else
+        {
+            this->showNormal();
+        }
+    }
 }
 
 bool StyledWindow::isOutOfWidget(QWidget* widget)
@@ -647,76 +699,10 @@ QMenu* StyledWindow::createPopupMenu()
     return nullptr;
 }
 
-#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
-// Experimental: Acrylic Background
-typedef enum _WINDOWCOMPOSITIONATTRIB
+void StyledWindow::initWindowBackground(bool transparent)
 {
-    WCA_UNDEFINED = 0,
-    WCA_NCRENDERING_ENABLED = 1,
-    WCA_NCRENDERING_POLICY = 2,
-    WCA_TRANSITIONS_FORCEDISABLED = 3,
-    WCA_ALLOW_NCPAINT = 4,
-    WCA_CAPTION_BUTTON_BOUNDS = 5,
-    WCA_NONCLIENT_RTL_LAYOUT = 6,
-    WCA_FORCE_ICONIC_REPRESENTATION = 7,
-    WCA_EXTENDED_FRAME_BOUNDS = 8,
-    WCA_HAS_ICONIC_BITMAP = 9,
-    WCA_THEME_ATTRIBUTES = 10,
-    WCA_NCRENDERING_EXILED = 11,
-    WCA_NCADORNMENTINFO = 12,
-    WCA_EXCLUDED_FROM_LIVEPREVIEW = 13,
-    WCA_VIDEO_OVERLAY_ACTIVE = 14,
-    WCA_FORCE_ACTIVEWINDOW_APPEARANCE = 15,
-    WCA_DISALLOW_PEEK = 16,
-    WCA_CLOAK = 17,
-    WCA_CLOAKED = 18,
-    WCA_ACCENT_POLICY = 19,
-    WCA_FREEZE_REPRESENTATION = 20,
-    WCA_EVER_UNCLOAKED = 21,
-    WCA_VISUAL_OWNER = 22,
-    WCA_HOLOGRAPHIC = 23,
-    WCA_EXCLUDED_FROM_DDA = 24,
-    WCA_PASSIVEUPDATEMODE = 25,
-    WCA_LAST = 26
-} WINDOWCOMPOSITIONATTRIB;
-
-typedef struct _WINDOWCOMPOSITIONATTRIBDATA
-{
-    WINDOWCOMPOSITIONATTRIB Attrib;
-    PVOID pvData;
-    SIZE_T cbData;
-} WINDOWCOMPOSITIONATTRIBDATA;
-
-typedef enum _ACCENT_STATE
-{
-    ACCENT_DISABLED = 0,
-    ACCENT_ENABLE_GRADIENT = 1,
-    ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
-    ACCENT_ENABLE_BLURBEHIND = 3,
-    ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,  // RS4 1803
-    ACCENT_ENABLE_HOSTBACKDROP = 5,       // RS5 1809
-    ACCENT_INVALID_STATE = 6
-} ACCENT_STATE;
-
-typedef struct _ACCENT_POLICY
-{
-    ACCENT_STATE AccentState;
-    DWORD AccentFlags;
-    DWORD GradientColor;
-    DWORD AnimationId;
-} ACCENT_POLICY;
-
-typedef BOOL(WINAPI* pfnGetWindowCompositionAttribute)(
-    HWND, WINDOWCOMPOSITIONATTRIBDATA*);
-typedef BOOL(WINAPI* pfnSetWindowCompositionAttribute)(
-    HWND, WINDOWCOMPOSITIONATTRIBDATA*);
-#    endif
-
-void StyledWindow::enableAcrylicWindow(bool enable)
-{
-#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
-    setAttribute(Qt::WA_TranslucentBackground, true);
-    HWND hwnd = (HWND)this->winId();
+#    ifdef _WIN32
+    HWND hwnd = (HWND)this->window()->winId();
     HMODULE hUser = GetModuleHandle("user32.dll");
     if (hUser)
     {
@@ -726,10 +712,13 @@ void StyledWindow::enableAcrylicWindow(bool enable)
 
         if (setWindowCompositionAttribute)
         {
-            ACCENT_POLICY accent = {enable ? ACCENT_ENABLE_ACRYLICBLURBEHIND :
-                                             ACCENT_DISABLED,
+            DWORD gradient = 0xFF000000;
+
+            ACCENT_POLICY accent = {transparent ?
+                                        ACCENT_ENABLE_ACRYLICBLURBEHIND :
+                                        ACCENT_ENABLE_GRADIENT,
                                     0, 0, 0};
-            accent.GradientColor = 0x010000000;
+            accent.GradientColor = gradient;
 
             WINDOWCOMPOSITIONATTRIBDATA data{WCA_ACCENT_POLICY, &accent,
                                              sizeof(accent)};
@@ -820,8 +809,30 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     }
     case WM_NCCALCSIZE:
     {
-        *result = WVR_REDRAW;
-        return true;
+        if (this->isVisible())
+        {
+            const auto rect =
+                msg->wParam ?
+                    &(reinterpret_cast<LPNCCALCSIZE_PARAMS>(msg->lParam))
+                         ->rgrc[0] :
+                    reinterpret_cast<LPRECT>(msg->lParam);
+
+            if (!this->isMaximized())
+            {
+                const auto oriTop = rect->top;
+                const auto oriResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE,
+                                                        msg->wParam, msg->lParam);
+                if (oriResult)
+                {
+                    *result = oriResult;
+                    return true;
+                }
+                rect->top = oriTop;
+            }
+            *result = false;
+            return true;
+        }
+        return false;
     }
 
     case WM_NCHITTEST:
@@ -977,34 +988,24 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         }
         return false;
     }
+    case WM_DISPLAYCHANGE:
+    {
+        qDebug() << ("DISPLAYS Changed\n");
+        // DPI LOST AFTER ADD OR REMOVE DISPLAY
+        QTimer::singleShot(10, [this]() { forceRedraw(); });
 
+        break;
+    }
     case WM_DPICHANGED:
     {
-        auto scale = devicePixelRatioF();
-        if (d->displayScale_ != scale)
-        {
-            d->displayScale_ = scale;
-            if (d->rightLayoutWidget_)
-            {
-                auto minimumWidth = 0;
-                if (d->close_)
-                {
-                    minimumWidth += d->close_->width();
-                }
-                if (d->maximize_)
-                {
-                    minimumWidth += d->maximize_->width();
-                }
-                if (d->minimize_)
-                {
-                    minimumWidth += d->minimize_->width();
-                }
-                d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
-            }
-            adjustSize();
-            update();
-        }
-
+        auto dpr = HIWORD(msg->wParam) / 96;
+        RECT* const rect = (RECT*)msg->lParam;
+        qDebug() << ("DPI Changed: ") << dpr;
+        d->displayScale_ = dpr;
+        updateWindowDpr(dpr,
+                        QRect(rect->left, rect->top, rect->right - rect->left,
+                              rect->bottom - rect->top),
+                        (WId)msg->hwnd);
         break;
     }
 
@@ -1019,7 +1020,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         {
             d->justMinimized_ = true;
         }
-        break;
+        return false;
     }
 
     case WM_GETMINMAXINFO:
@@ -1090,9 +1091,17 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
         break;
     }
-    case WM_NCPAINT:
+
+    case WM_ERASEBKGND:
     {
-        return false;
+        // NOTE: Find a way to fix the Window 10 & 11 BUG:
+        // https://stackoverflow.com/questions/69715610/how-to-initialize-the-background-color-of-win32-app-to-something-other-than-whit
+        COLORREF color = RGB(0, 0, 0);
+
+        SetClassLongPtr(msg->hwnd, GCLP_HBRBACKGROUND,
+                        (LONG_PTR)CreateSolidBrush(color));
+
+        return true;
     }
     case WM_NCUAHDRAWCAPTION:
     case WM_NCUAHDRAWFRAME:
@@ -1100,6 +1109,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         *result = 0;
         return true;
     }
+
     case WM_MOUSEMOVE:
     {
         if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
@@ -1275,13 +1285,39 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         const auto windowPos = reinterpret_cast<LPWINDOWPOS>(msg->lParam);
         windowPos->flags |= SWP_NOCOPYBITS;
+        break;
     }
-    break;
-
+    case WM_POWERBROADCAST:
+    {
+        switch (msg->wParam)
+        {
+        case PBT_APMRESUMEAUTOMATIC:
+        {
+            qDebug() << ("PBT_APMRESUMEAUTOMATIC  received\n");
+            // DPI LOST AFTER RESUME FROM SLEEP
+            QTimer::singleShot(10, [this]() { forceRedraw(); });
+            break;
+        }
+        case PBT_APMPOWERSTATUSCHANGE:
+        {
+            qDebug() << ("PBT_APMPOWERSTATUSCHANGE  received\n");
+            break;
+        }
+        case PBT_APMRESUMESUSPEND:
+        {
+            qDebug() << ("PBT_APMRESUMESUSPEND  received\n");
+            break;
+        }
+        case PBT_APMSUSPEND:
+        {
+            qDebug() << ("PBT_APMSUSPEND  received\n");
+            break;
+        }
+        }
+    }
     default: break;
     }
-
-    return QMainWindow::nativeEvent(eventType, message, result);
+    return false;
 }
 #endif
 }  // namespace ads

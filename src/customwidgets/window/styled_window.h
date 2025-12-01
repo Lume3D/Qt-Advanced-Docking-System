@@ -54,7 +54,7 @@ public slots:
     void showFullScreen();
 
 protected:
-    void enableAcrylicWindow(bool enable = true);
+    void initWindowBackground(bool transparent = true);
     void setResizeable(bool resizeable = true);
     bool isResizeable();
     void setResizeableAreaWidth(int width = 5);
@@ -69,6 +69,7 @@ protected:
     QMenu* createPopupMenu() override;
 
     void forceRedraw();
+    void updateWindowDpr(float dpr, QRect rect, WId wid);
 
 private slots:
     void onTitleBarDestroyed();
