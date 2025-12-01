@@ -33,7 +33,7 @@ struct StyledWindow::StyledWindowPrivate
 
     QWidget* titleBar_{nullptr};
     QList<QWidget*> whiteList_;
-    QMargins margins_;
+    QMargins margins_{1, 1, 1, 1};
     QMargins frames_;
     QWidget* divider_{nullptr};
 
@@ -817,6 +817,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                          ->rgrc[0] :
                     reinterpret_cast<LPRECT>(msg->lParam);
 
+            if (!this->isMaximized())
             {
                 const auto oriTop = rect->top;
                 const auto oriResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE,
