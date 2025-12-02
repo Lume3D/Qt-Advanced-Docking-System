@@ -33,7 +33,7 @@ struct StyledWindow::StyledWindowPrivate
 
     QWidget* titleBar_{nullptr};
     QList<QWidget*> whiteList_;
-    QMargins margins_{1, 1, 1, 1};
+    QMargins margins_{0, 0, 0, 0};
     QMargins frames_;
     QWidget* divider_{nullptr};
 
