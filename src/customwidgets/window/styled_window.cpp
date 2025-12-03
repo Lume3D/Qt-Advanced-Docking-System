@@ -303,15 +303,24 @@ bool StyledWindow::event(QEvent* event)
 
             setResizeable(d->resizeable_);
             constructHintButtons();
+            // Register for receiving WM_POWERBROADCAST event
+            RegisterSuspendResumeNotification((HANDLE)this->winId(),
+                                              DEVICE_NOTIFY_WINDOW_HANDLE);
+
+            initWindowBackground(false);
+            BOOL cloak = TRUE;
+            DwmSetWindowAttribute((HWND)this->effectiveWinId(), DWMWA_CLOAK,
+                                  &cloak, sizeof(cloak));
 
             auto style = GetClassLong((HWND)this->winId(), GCL_STYLE);
             style &= ~(CS_VREDRAW | CS_HREDRAW);
             SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
 
-            initWindowBackground(false);
-            // Register for receiving WM_POWERBROADCAST event
-            RegisterSuspendResumeNotification((HANDLE)this->winId(),
-                                              DEVICE_NOTIFY_WINDOW_HANDLE);
+            QTimer::singleShot(10, [this]() {
+                BOOL cloak = FALSE;
+                DwmSetWindowAttribute((HWND)this->effectiveWinId(), DWMWA_CLOAK,
+                                      &cloak, sizeof(cloak));
+            });
         }
     }
 
@@ -403,7 +412,8 @@ void StyledWindow::setResizeable(bool resizeable)
     bool visible = isVisible();
     d->resizeable_ = resizeable;
     HWND hwnd = (HWND)this->winId();
-    DWORD style = ::GetWindowLong(hwnd, GWL_STYLE) | WS_POPUP | WS_CAPTION;
+    DWORD style = ::GetWindowLong(hwnd, GWL_STYLE) | WS_POPUP | WS_CAPTION
+                  | WS_EX_COMPOSITED;
 
     if (d->resizeable_)
     {
@@ -712,7 +722,7 @@ void StyledWindow::initWindowBackground(bool transparent)
 
         if (setWindowCompositionAttribute)
         {
-            DWORD gradient = 0xFF000000;
+            DWORD gradient = 0xFF101010;
 
             ACCENT_POLICY accent = {transparent ?
                                         ACCENT_ENABLE_ACRYLICBLURBEHIND :
@@ -1094,12 +1104,8 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_ERASEBKGND:
     {
-        // NOTE: Find a way to fix the Window 10 & 11 BUG:
-        // https://stackoverflow.com/questions/69715610/how-to-initialize-the-background-color-of-win32-app-to-something-other-than-whit
-        COLORREF color = RGB(0, 0, 0);
-
         SetClassLongPtr(msg->hwnd, GCLP_HBRBACKGROUND,
-                        (LONG_PTR)CreateSolidBrush(color));
+                        (LONG_PTR)CreateSolidBrush(0xFF101010));
 
         return true;
     }
