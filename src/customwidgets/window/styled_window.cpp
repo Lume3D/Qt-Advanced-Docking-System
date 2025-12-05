@@ -1,5 +1,3 @@
-
-
 #include "styled_window.h"
 
 #include "utils.h"
@@ -33,7 +31,7 @@ struct StyledWindow::StyledWindowPrivate
 
     QWidget* titleBar_{nullptr};
     QList<QWidget*> whiteList_;
-    QMargins margins_{0, 0, 0, 0};
+    QMargins margins_;
     QMargins frames_;
     QWidget* divider_{nullptr};
 
@@ -87,7 +85,7 @@ void StyledWindow::init()
     });
     d->titleBar_ = Q_NULLPTR;
     d->borderWidth_ = 5;
-    setResizeableAreaWidth(5);
+    setResizeableAreaWidth(8);
 #endif
 
     Qt::WindowFlags flags;
@@ -266,11 +264,14 @@ void StyledWindow::initWindowTitle()
     this->setProperty("class", "window-main");
     this->addToolBarBreak();
 #ifdef Q_OS_WIN
-    this->setContentsMargins({0, 0, 0, 0});
+
     if (W_10)
     {
-        this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
-                                          FRAME_THICKNESS, FRAME_THICKNESS));
+        if (!this->isMaximized())
+        {
+            this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
+                                              FRAME_THICKNESS, FRAME_THICKNESS));
+        }
         this->setProperty("class", "window-10-main");
     }
 
@@ -301,22 +302,29 @@ bool StyledWindow::event(QEvent* event)
         {
             d->initResize_ = true;
 
+            RECT rect;
+            GetWindowRect((HWND)this->effectiveWinId(), &rect);
+            updateWindowDpr(this->devicePixelRatio(),
+                            QRect(rect.left, rect.top, rect.right - rect.left,
+                                  rect.bottom - rect.top),
+                            this->effectiveWinId());
+
             setResizeable(d->resizeable_);
             constructHintButtons();
             // Register for receiving WM_POWERBROADCAST event
             RegisterSuspendResumeNotification((HANDLE)this->winId(),
                                               DEVICE_NOTIFY_WINDOW_HANDLE);
 
+            auto style = GetClassLong((HWND)this->winId(), GCL_STYLE);
+            style &= ~(CS_VREDRAW | CS_HREDRAW);
+            SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
+
             initWindowBackground(false);
             BOOL cloak = TRUE;
             DwmSetWindowAttribute((HWND)this->effectiveWinId(), DWMWA_CLOAK,
                                   &cloak, sizeof(cloak));
 
-            auto style = GetClassLong((HWND)this->winId(), GCL_STYLE);
-            style &= ~(CS_VREDRAW | CS_HREDRAW);
-            SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
-
-            QTimer::singleShot(10, [this]() {
+            QTimer::singleShot(100, [this]() {
                 BOOL cloak = FALSE;
                 DwmSetWindowAttribute((HWND)this->effectiveWinId(), DWMWA_CLOAK,
                                       &cloak, sizeof(cloak));
@@ -1002,8 +1010,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         qDebug() << ("DISPLAYS Changed\n");
         // DPI LOST AFTER ADD OR REMOVE DISPLAY
-        QTimer::singleShot(10, [this]() { forceRedraw(); });
-
+        QTimer::singleShot(1000, [this]() { forceRedraw(); });
         break;
     }
     case WM_DPICHANGED:
@@ -1301,7 +1308,14 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         {
             qDebug() << ("PBT_APMRESUMEAUTOMATIC  received\n");
             // DPI LOST AFTER RESUME FROM SLEEP
-            QTimer::singleShot(10, [this]() { forceRedraw(); });
+            QTimer::singleShot(100, [this]() {
+                RECT rect;
+                GetWindowRect((HWND)this->winId(), &rect);
+                updateWindowDpr(d->displayScale_,
+                                QRect(rect.left, rect.top, rect.right - rect.left,
+                                      rect.bottom - rect.top),
+                                this->winId());
+            });
             break;
         }
         case PBT_APMPOWERSTATUSCHANGE:
