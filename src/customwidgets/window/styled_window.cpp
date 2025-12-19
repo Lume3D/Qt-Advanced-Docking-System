@@ -178,10 +178,14 @@ bool StyledWindow::eventFilter(QObject* watched, QEvent* event)
 #elif defined(_WIN32)
         if (event->type() == QEvent::Resize)
         {
-            DWORD gradient = 0x00101010;
-            DwmSetWindowAttribute((HWND)this->effectiveWinId(),
-                                  DWMWA_CAPTION_COLOR, &gradient,
-                                  sizeof(gradient));
+            if (QOperatingSystemVersion::current().microVersion() > 22000)
+            {
+                DWORD gradient = 0x00101010;
+                DwmSetWindowAttribute((HWND)this->effectiveWinId(),
+                                      DWMWA_CAPTION_COLOR, &gradient,
+                                      sizeof(gradient));
+            }
+
             auto* widget = qobject_cast<QToolBar*>(watched);
             MARGINS m = {0, 0, widget->size().height() * d->displayScale_, 0};
             DwmExtendFrameIntoClientArea((HWND)this->effectiveWinId(), &m);
