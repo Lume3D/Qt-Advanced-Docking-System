@@ -6,6 +6,7 @@
 #include <QToolBar>
 
 #include "DockAreaWidget.h"
+#include "DockAreaTitleBar.h"
 
 
 using namespace ads;
