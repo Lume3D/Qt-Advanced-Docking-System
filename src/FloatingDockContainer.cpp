@@ -376,6 +376,7 @@ struct FloatingDockContainerPrivate
 	QPoint DragStartPos;
 	bool Hiding = false;
 	bool AutoHideChildren = true;
+	bool HideContentOnNextHide = false;
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     QWidget* MouseEventHandler = nullptr;
     CFloatingWidgetTitleBar* TitleBar = nullptr;
@@ -461,7 +462,7 @@ struct FloatingDockContainerPrivate
 		}
 		else
 		{
-			_this->setWindowIcon(QApplication::windowIcon());
+			_this->setWindowIcon(CurrentWidget->windowIcon());
 		}
 	}
 
@@ -744,6 +745,11 @@ CFloatingDockContainer::CFloatingDockContainer(CDockManager *DockManager) :
 #endif
 #endif
 
+	if (CDockManager::testConfigFlag(CDockManager::UseNativeWindows))
+	{
+		winId();
+	}
+
 	DockManager->registerFloatingWidget(this);
 }
 
@@ -867,6 +873,12 @@ void CFloatingDockContainer::changeEvent(QEvent *event)
 				this->showMaximized();
 			}
 		}
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+        if (d->TitleBar)
+        {
+            d->TitleBar->setVisible(!(isFloating() && isFullScreen()));
+        }
+#endif
 		break;
 
 	default:
@@ -981,6 +993,15 @@ void CFloatingDockContainer::closeEvent(QCloseEvent *event)
 		return;
 	}
 
+	// New bug (QWebEngineView reload side effect):
+	// when a WebEngine-based dock is tabified into a floating container, the
+	// embedded native/web process can trigger delayed hide/show cycles on the
+	// floating window. If every non-spontaneous hide propagates to
+	// DockWidget->toggleView(false), unrelated tabs are marked closed and seem
+	// to "disappear". We therefore arm HideContentOnNextHide only for the 
+	// explicit close path.
+	d->HideContentOnNextHide = true;
+
 	// In Qt version after 5.9.2 there seems to be a bug that causes the
 	// QWidget::event() function to not receive any NonClientArea mouse
 	// events anymore after a close/show cycle. The bug is reported here:
@@ -1007,6 +1028,15 @@ void CFloatingDockContainer::hideEvent(QHideEvent *event)
     {
         return;
     }
+
+	// Only a close operation should propagate hide->toggleView(false) to
+	// child dock widgets. Generic hide/show cycles (e.g. from platform or
+	// embedded native content) must not change dock open/closed state.
+	if (!d->HideContentOnNextHide)
+	{
+		return;
+	}
+	d->HideContentOnNextHide = false;
 
 	if ( d->AutoHideChildren )
 	{
@@ -1378,7 +1408,8 @@ void CFloatingDockContainer::onMaximizeRequest()
 //============================================================================
 void CFloatingDockContainer::showNormal(bool fixGeometry)
 {
-	if (windowState() == Qt::WindowMaximized)
+    if ( (windowState() & Qt::WindowMaximized) != 0 ||
+         (windowState() & Qt::WindowFullScreen) != 0)
 	{
 		QRect oldNormal = normalGeometry();
 		Super::showNormal();

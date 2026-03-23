@@ -142,15 +142,6 @@ protected:
         eDragState DragState, QWidget* MouseEventHandler) override;
 
 	/**
-	 * Call this function to start dragging the floating widget
-	 */
-    void startDragging(const QPoint& DragStartMousePos, const QSize& Size,
-        QWidget* MouseEventHandler)
-	{
-        startFloating(DragStartMousePos, Size, DraggingFloatingWidget, MouseEventHandler);
-	}
-
-	/**
 	 * Call this function if you explicitly want to signal that dragging has
 	 * finished
 	 */
@@ -239,12 +230,21 @@ public:
 	/**
 	 * Virtual Destructor
 	 */
-	virtual ~CFloatingDockContainer();
+	~CFloatingDockContainer() override;
 
 	/**
 	 * Access function for the internal dock container
 	 */
 	CDockContainerWidget* dockContainer() const;
+
+	/**
+	 * Call this function to start dragging the floating widget
+	 */
+    void startDragging(const QPoint& DragStartMousePos, const QSize& Size,
+        QWidget* MouseEventHandler)
+	{
+        startFloating(DragStartMousePos, Size, DraggingFloatingWidget, MouseEventHandler);
+	}
 
 	/**
 	 * This function returns true, if it can be closed.
