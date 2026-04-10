@@ -1387,12 +1387,45 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         return false;
     }
 
+    case WM_NCLBUTTONDBLCLK:
+    {
+        if (msg->wParam == HTCAPTION)
+        {
+            d->pendingStateResizePaint_ = true;
+            RedrawWindow(msg->hwnd, nullptr, nullptr,
+                         RDW_INVALIDATE | RDW_NOERASE | RDW_ALLCHILDREN);
+            update();
+            if (auto* window = windowHandle())
+            {
+                window->requestUpdate();
+            }
+
+            *result = DefWindowProcW(msg->hwnd, msg->message, msg->wParam,
+                                     msg->lParam);
+            return true;
+        }
+        return false;
+    }
+
     case WM_STYLECHANGED:
     {
         if (msg->wParam == GWL_STYLE)
         {
-            setResizeable(d->resizeable_);
-            constructHintButtons();
+            const auto* style =
+                reinterpret_cast<const STYLESTRUCT*>(msg->lParam);
+            constexpr DWORD kFrameStyleMask = WS_CAPTION | WS_THICKFRAME
+                                              | WS_MINIMIZEBOX
+                                              | WS_MAXIMIZEBOX;
+            // Modal dialogs temporarily toggle owner styles such as
+            // WS_DISABLED. Ignore those changes so we do not force a full
+            // frame refresh and nudge the window position.
+            if (style
+                && (((style->styleOld ^ style->styleNew) & kFrameStyleMask)
+                    != 0))
+            {
+                setResizeable(d->resizeable_);
+                constructHintButtons();
+            }
         }
         break;
     }
