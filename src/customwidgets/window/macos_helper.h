@@ -1,1 +1,0 @@
-void HideTitleBar(long winId);

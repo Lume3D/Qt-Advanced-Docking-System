@@ -115,14 +115,6 @@ struct DockAreaTitleBarPrivate
 	}
 
 	/**
-	 * Convenience function for access to dock manager components factory
-	 */
-	QSharedPointer<ads::CDockComponentsFactory> componentsFactory() const
-	{
-        return dockManager()->componentsFactory();
-    }
-
-	/**
 	 * Returns true if the given config flag is set
 	 * Convenience function to ease config flag testing
 	 */
@@ -260,10 +252,10 @@ void DockAreaTitleBarPrivate::createAutoHideTitleLabel()
 {
 	AutoHideTitleLabel = new CElidingLabel("");
 	AutoHideTitleLabel->setObjectName("autoHideTitleLabel");
-	// When the tabs are at the top, they will be at position 0, insert the label behind them, and hide it.
-	Layout->addWidget(AutoHideTitleLabel);
-	AutoHideTitleLabel->setVisible(CDockManager::testConfigFlag(CDockManager::TabsAtBottom));
-	Layout->addWidget(new CSpacerWidget(_this));
+	// At position 0 is the tab bar - insert behind tab bar
+	Layout->insertWidget(1, AutoHideTitleLabel);
+	AutoHideTitleLabel->setVisible(false); // Default hidden
+	Layout->insertWidget(2 ,new CSpacerWidget(_this));
 }
 
 
@@ -272,9 +264,7 @@ void DockAreaTitleBarPrivate::createTabBar()
 {
 	TabBar = componentsFactory()->createDockAreaTabBar(DockArea);
     TabBar->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
-	if (!CDockManager::testConfigFlag(CDockManager::TabsAtBottom))
-		Layout->addWidget(TabBar);
-
+	Layout->addWidget(TabBar);
 	_this->connect(TabBar, SIGNAL(tabClosed(int)), SLOT(markTabsMenuOutdated()));
 	_this->connect(TabBar, SIGNAL(tabOpened(int)), SLOT(markTabsMenuOutdated()));
 	_this->connect(TabBar, SIGNAL(tabInserted(int)), SLOT(markTabsMenuOutdated()));
@@ -305,7 +295,7 @@ IFloatingWidget* DockAreaTitleBarPrivate::makeAreaFloating(const QPoint& Offset,
 	else
 	{
 		auto w = new CFloatingDragPreview(DockArea);
-		QObject::connect(w, &CFloatingDragPreview::draggingCanceled, [this]()
+		QObject::connect(w, &CFloatingDragPreview::draggingCanceled, [=]()
 		{
 			this->DragState = DraggingInactive;
 		});
@@ -353,8 +343,8 @@ CDockAreaTitleBar::CDockAreaTitleBar(CDockAreaWidget* parent) :
 	setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
 
 	d->createTabBar();
-	d->createAutoHideTitleLabel();
 	d->createButtons();
+	d->createAutoHideTitleLabel();
 
     setFocusPolicy(Qt::NoFocus);
 }
@@ -387,51 +377,27 @@ CDockAreaTabBar* CDockAreaTitleBar::tabBar() const
 	return d->TabBar;
 }
 
-
-//============================================================================
-void CDockAreaTitleBar::resizeEvent(QResizeEvent *event)
-{
-	Super::resizeEvent(event);
-	if (CDockManager::testConfigFlag(CDockManager::DockAreaDynamicTabsMenuButtonVisibility)
-	 && CDockManager::testConfigFlag(CDockManager::DisableTabTextEliding))
-	{
-		// Use queued connection to ensure that the resizing and relayouting has
-		// finished to ensure that the d->TabBar->areTabsOverflowing() function
-		// returns the correct value
-		QMetaObject::invokeMethod(this, "markTabsMenuOutdated", Qt::QueuedConnection);
-	}
-}
-
-
 //============================================================================
 void CDockAreaTitleBar::markTabsMenuOutdated()
 {
-	if (CDockManager::testConfigFlag(CDockManager::DockAreaDynamicTabsMenuButtonVisibility))
+	if(DockAreaTitleBarPrivate::testConfigFlag(CDockManager::DockAreaDynamicTabsMenuButtonVisibility))
 	{
-		bool TabsMenuButtonVisible = false;
-		if (CDockManager::testConfigFlag(CDockManager::DisableTabTextEliding))
+		bool hasElidedTabTitle = false;
+		for (int i = 0; i < d->TabBar->count(); ++i)
 		{
-			TabsMenuButtonVisible = d->TabBar->areTabsOverflowing();
-		}
-		else
-		{
-			bool hasElidedTabTitle = false;
-			for (int i = 0; i < d->TabBar->count(); ++i)
+			if (!d->TabBar->isTabOpen(i))
 			{
-				if (!d->TabBar->isTabOpen(i))
-				{
-					continue;
-				}
-				CDockWidgetTab* Tab = d->TabBar->tab(i);
-				if(Tab->isTitleElided())
-				{
-					hasElidedTabTitle = true;
-					break;
-				}
+				continue;
 			}
-			TabsMenuButtonVisible = (hasElidedTabTitle && (d->TabBar->count() > 1));
+			CDockWidgetTab* Tab = d->TabBar->tab(i);
+			if(Tab->isTitleElided())
+			{
+				hasElidedTabTitle = true;
+				break;
+			}
 		}
-		QMetaObject::invokeMethod(d->TabsMenuButton, "setVisible", Qt::QueuedConnection, Q_ARG(bool, TabsMenuButtonVisible));
+		bool visible = (hasElidedTabTitle && (d->TabBar->count() > 1));
+		QMetaObject::invokeMethod(d->TabsMenuButton, "setVisible", Qt::QueuedConnection, Q_ARG(bool, visible));
 	}
 	d->MenuOutdated = true;
 }
@@ -743,11 +709,6 @@ void CDockAreaTitleBar::mouseDoubleClickEvent(QMouseEvent *event)
 		return;
 	}
 
-	if (!CDockManager::testConfigFlag(CDockManager::DoubleClickUndocksWidget))
-	{
-		return;
-	}
-
 	d->makeAreaFloating(event->pos(), DraggingInactive);
 }
 
@@ -783,35 +744,24 @@ void CDockAreaTitleBar::contextMenuEvent(QContextMenuEvent* ev)
 		return;
 	}
 
-    auto Menu = buildContextMenu(nullptr);
-	Menu->exec(ev->globalPos());
-    delete Menu;
-}
-
-QMenu* CDockAreaTitleBar::buildContextMenu(QMenu *Menu)
-{
-    const bool isAutoHide = d->DockArea->isAutoHide();
+	const bool isAutoHide = d->DockArea->isAutoHide();
 	const bool isTopLevelArea = d->DockArea->isTopLevelArea();
 	QAction* Action;
-    if (Menu == nullptr)
-    {
-        Menu = new QMenu(this);
-    }
-    
-    if (!isTopLevelArea)
+	QMenu Menu(this);
+	if (!isTopLevelArea)
 	{
-		Action = Menu->addAction(isAutoHide ? tr("Detach") : tr("Detach Group"),
+		Action = Menu.addAction(isAutoHide ? tr("Detach") : tr("Detach Group"),
 			this, SLOT(onUndockButtonClicked()));
 		Action->setEnabled(d->DockArea->features().testFlag(CDockWidget::DockWidgetFloatable));
 		if (CDockManager::testAutoHideConfigFlag(CDockManager::AutoHideFeatureEnabled))
 		{
-			Action = Menu->addAction(isAutoHide ? tr("Unpin (Dock)") : tr("Pin Group"), this, SLOT(onAutoHideDockAreaActionClicked()));
+			Action = Menu.addAction(isAutoHide ? tr("Unpin (Dock)") : tr("Pin Group"), this, SLOT(onAutoHideDockAreaActionClicked()));
 			auto AreaIsPinnable = d->DockArea->features().testFlag(CDockWidget::DockWidgetPinnable);
 			Action->setEnabled(AreaIsPinnable);
 
 			if (!isAutoHide)
 			{
-				auto menu = Menu->addMenu(tr("Pin Group To..."));
+				auto menu = Menu.addMenu(tr("Pin Group To..."));
 				menu->setEnabled(AreaIsPinnable);
 				d->createAutoHideToAction(tr("Top"), SideBarTop, menu);
 				d->createAutoHideToAction(tr("Left"), SideBarLeft, menu);
@@ -819,26 +769,27 @@ QMenu* CDockAreaTitleBar::buildContextMenu(QMenu *Menu)
 				d->createAutoHideToAction(tr("Bottom"), SideBarBottom, menu);
 			}
 		}
-		Menu->addSeparator();
+		Menu.addSeparator();
 	}
 
 	if (isAutoHide)
 	{
-		Action = Menu->addAction(tr("Minimize"), this, SLOT(minimizeAutoHideContainer()));
-		Action = Menu->addAction(tr("Close"), this, SLOT(onAutoHideCloseActionTriggered()));
+		Action = Menu.addAction(tr("Minimize"), this, SLOT(minimizeAutoHideContainer()));
+		Action = Menu.addAction(tr("Close"), this, SLOT(onAutoHideCloseActionTriggered()));
 	}
 	else
 	{
-		Action = Menu->addAction(isAutoHide ? tr("Close") : tr("Close Group"), this, SLOT(onCloseButtonClicked()));
+		Action = Menu.addAction(isAutoHide ? tr("Close") : tr("Close Group"), this, SLOT(onCloseButtonClicked()));
 	}
 
 	Action->setEnabled(d->DockArea->features().testFlag(CDockWidget::DockWidgetClosable));
 	if (!isAutoHide && !isTopLevelArea)
 	{
-		Action = Menu->addAction(tr("Close Other Groups"), d->DockArea, SLOT(closeOtherAreas()));
+		Action = Menu.addAction(tr("Close Other Groups"), d->DockArea, SLOT(closeOtherAreas()));
 	}
-    return Menu;
+	Menu.exec(ev->globalPos());
 }
+
 
 //============================================================================
 void CDockAreaTitleBar::insertWidget(int index, QWidget *widget)
@@ -902,12 +853,9 @@ QString CDockAreaTitleBar::titleBarButtonToolTip(TitleBarButton Button) const
 //============================================================================
 void CDockAreaTitleBar::showAutoHideControls(bool Show)
 {
-	if (Show)
-		d->TabBar->setVisible(false); // Auto hide toolbar never has tabs
-
+	d->TabBar->setVisible(!Show); // Auto hide toolbar never has tabs
 	d->MinimizeButton->setVisible(Show);
-	if (!CDockManager::testConfigFlag(CDockManager::TabsAtBottom))
-		d->AutoHideTitleLabel->setVisible(Show);
+	d->AutoHideTitleLabel->setVisible(Show);
 }
 
 

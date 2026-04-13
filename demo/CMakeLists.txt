@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.5)
 project(ads_demo VERSION ${VERSION_SHORT}) 
 
 find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
@@ -27,7 +27,7 @@ target_link_libraries(AdvancedDockingSystemDemo PUBLIC Qt${QT_VERSION_MAJOR}::Co
 if(WIN32 AND QT_VERSION_MAJOR LESS 6)
     target_link_libraries(AdvancedDockingSystemDemo PUBLIC Qt${QT_VERSION_MAJOR}::AxContainer)
 endif()
-target_link_libraries(AdvancedDockingSystemDemo PRIVATE qtadvanceddocking-qt${QT_VERSION_MAJOR})
+target_link_libraries(AdvancedDockingSystemDemo PRIVATE qt${QT_VERSION_MAJOR}advanceddocking)
 set_target_properties(AdvancedDockingSystemDemo PROPERTIES 
     AUTOMOC ON
     AUTORCC ON

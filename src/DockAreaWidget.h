@@ -38,7 +38,6 @@
 
 QT_FORWARD_DECLARE_CLASS(QXmlStreamWriter)
 QT_FORWARD_DECLARE_CLASS(QAbstractButton)
-QT_FORWARD_DECLARE_CLASS(QMenu)
 
 namespace ads
 {
@@ -166,11 +165,6 @@ protected:
 	void internalSetCurrentDockWidget(CDockWidget* DockWidget);
 
 	/**
-	 * Call this function to update the window title
-	 */
-	void updateWindowTitle();
-
-	/**
 	 * Marks tabs menu to update
 	 */
 	void markTitleBarMenuOutdated();
@@ -204,7 +198,7 @@ public:
 	/**
 	 * Virtual Destructor
 	 */
-	~CDockAreaWidget() override;
+	virtual ~CDockAreaWidget();
 
 	/**
 	 * Returns the dock manager object this dock area belongs to

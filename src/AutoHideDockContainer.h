@@ -65,7 +65,6 @@ protected:
 	virtual void resizeEvent(QResizeEvent* event) override;
 	virtual void leaveEvent(QEvent *event) override;
 	virtual bool event(QEvent* event) override;
-    virtual void dragLeaveEvent(QDragLeaveEvent* ev) override;
 
 	/**
 	 * Updates the size considering the size limits and the resize margins
@@ -140,7 +139,7 @@ public:
 
 	/**
 	 * Moves the contents to the parent container widget
-	 * Used before removing this Auto Hide dock container
+	 * Used before removing this Auto Hide dock container 
 	 */
     void moveContentsToParent();
 

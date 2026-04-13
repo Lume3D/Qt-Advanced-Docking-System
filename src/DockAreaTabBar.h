@@ -65,7 +65,8 @@ private Q_SLOTS:
 	void onTabWidgetMoved(const QPoint& GlobalPos);
 
 protected:
-    virtual void wheelEvent(QWheelEvent* Event) override;
+	virtual void wheelEvent(QWheelEvent* Event) override;
+
 
 public:
 	using Super = QScrollArea;
@@ -151,12 +152,6 @@ public:
 	 * internal viewport.
 	 */
 	virtual QSize sizeHint() const override;
-
-	/**
-	 * This function returns true, if the tabs need more space than the size
-	 * of the tab bar.
-	 */
-	bool areTabsOverflowing() const;
 
 public Q_SLOTS:
 	/**

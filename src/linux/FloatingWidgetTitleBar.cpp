@@ -238,20 +238,6 @@ void CFloatingWidgetTitleBar::mouseDoubleClickEvent(QMouseEvent *event)
     }
 }
 
-//============================================================================
-QSize CFloatingWidgetTitleBar::sizeHint() const
-{
-    if (isVisible())
-    {
-        return QFrame::sizeHint();
-    }
-    else
-    {
-        // Allow titlebar to collapse when set invisible.
-        return QSize();
-    }
-}
-
 
 //============================================================================
 void CFloatingWidgetTitleBar::setMaximizedIcon(bool maximized)

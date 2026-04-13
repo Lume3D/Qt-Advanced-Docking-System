@@ -75,17 +75,18 @@
 #endif
 #endif
 
-#include "DockAreaTabBar.h"
-#include "DockAreaTitleBar.h"
-#include "DockAreaWidget.h"
-#include "DockComponentsFactory.h"
 #include "DockManager.h"
-#include "DockSplitter.h"
 #include "DockWidget.h"
+#include "DockAreaWidget.h"
+#include "DockAreaTitleBar.h"
+#include "DockAreaTabBar.h"
 #include "FloatingDockContainer.h"
-#include "ImageViewer.h"
-#include "MyDockAreaTitleBar.h"
+#include "DockComponentsFactory.h"
 #include "StatusDialog.h"
+#include "DockSplitter.h"
+#include "ImageViewer.h"
+
+
 
 /**
  * Returns a random number from 0 to highest - 1
@@ -146,7 +147,7 @@ public:
 	using Super = ads::CDockComponentsFactory;
 	ads::CDockAreaTitleBar* createDockAreaTitleBar(ads::CDockAreaWidget* DockArea) const override
 	{
-		auto TitleBar = new MyDockAreaTitleBar(DockArea);
+		auto TitleBar = new ads::CDockAreaTitleBar(DockArea);
 		auto CustomButton = new QToolButton(DockArea);
 		CustomButton->setToolTip(QObject::tr("Help"));
 		CustomButton->setIcon(svgIcon(":/adsdemo/images/help_outline.svg"));
@@ -236,7 +237,7 @@ struct MainWindowPrivate
 		m->setRootPath(QDir::currentPath());
 		w->setModel(m);
 		w->setRootIndex(m->index(QDir::currentPath()));
-		ads::CDockWidget* DockWidget = DockManager->createDockWidget(QString("Filesystem %1")
+		ads::CDockWidget* DockWidget = new ads::CDockWidget(QString("Filesystem %1")
 			.arg(FileSystemCount++));
 		DockWidget->setWidget(w);
 		DockWidget->setIcon(svgIcon(":/adsdemo/images/folder_open.svg"));
@@ -257,7 +258,7 @@ struct MainWindowPrivate
 	{
 		static int CalendarCount = 0;
 		QCalendarWidget* w = new QCalendarWidget();
-		ads::CDockWidget* DockWidget = DockManager->createDockWidget(QString("Calendar %1").arg(CalendarCount++));
+		ads::CDockWidget* DockWidget = new ads::CDockWidget(QString("Calendar %1").arg(CalendarCount++));
 		// The following lines are for testing the setWidget() and takeWidget()
 		// functionality
 		DockWidget->setWidget(w);
@@ -302,7 +303,7 @@ struct MainWindowPrivate
 			.arg(LabelCount)
 			.arg(QTime::currentTime().toString("hh:mm:ss:zzz")));
 
-		ads::CDockWidget* DockWidget = DockManager->createDockWidget(QString("Label %1").arg(LabelCount++));
+		ads::CDockWidget* DockWidget = new ads::CDockWidget(QString("Label %1").arg(LabelCount++));
 		DockWidget->setWidget(l);
 		DockWidget->setIcon(svgIcon(":/adsdemo/images/font_download.svg"));
 		ui.menuView->addAction(DockWidget->toggleViewAction());
@@ -320,7 +321,7 @@ struct MainWindowPrivate
 		w->setPlaceholderText("This is an editor. If you close the editor, it will be "
 			"deleted. Enter your text here.");
 		w->setStyleSheet("border: none");
-		ads::CDockWidget* DockWidget = DockManager->createDockWidget(QString("Editor %1").arg(EditorCount++));
+		ads::CDockWidget* DockWidget = new ads::CDockWidget(QString("Editor %1").arg(EditorCount++));
 		DockWidget->setWidget(w);
 		DockWidget->setIcon(svgIcon(":/adsdemo/images/edit.svg"));
 		DockWidget->setFeature(ads::CDockWidget::CustomCloseHandling, true);
@@ -363,7 +364,7 @@ struct MainWindowPrivate
 
 		auto Result = w->loadFile(FileName);
 		qDebug() << "loadFile result: " << Result;
-		ads::CDockWidget* DockWidget = DockManager->createDockWidget(QString("Image Viewer %1").arg(ImageViewerCount++));
+		ads::CDockWidget* DockWidget = new ads::CDockWidget(QString("Image Viewer %1").arg(ImageViewerCount++));
 		DockWidget->setIcon(svgIcon(":/adsdemo/images/photo.svg"));
 		DockWidget->setWidget(w,ads:: CDockWidget::ForceNoScrollArea);
 		auto ToolBar = DockWidget->createDefaultToolBar();
@@ -378,7 +379,7 @@ struct MainWindowPrivate
 	{
 		static int TableCount = 0;
 		auto w = new CMinSizeTableWidget();
-		ads::CDockWidget* DockWidget = DockManager->createDockWidget(QString("Table %1").arg(TableCount++));
+		ads::CDockWidget* DockWidget = new ads::CDockWidget(QString("Table %1").arg(TableCount++));
 		static int colCount = 5;
 		static int rowCount = 30;
 		w->setColumnCount(colCount);
@@ -396,7 +397,7 @@ struct MainWindowPrivate
 		DockWidget->setMinimumSizeHintMode(ads::CDockWidget::MinimumSizeHintFromContent);
 		auto ToolBar = DockWidget->createDefaultToolBar();
 		auto Action = ToolBar->addAction(svgIcon(":/adsdemo/images/fullscreen.svg"), "Toggle Fullscreen");
-		QObject::connect(Action, &QAction::triggered, [DockWidget]()
+		QObject::connect(Action, &QAction::triggered, [=]()
 			{
 				if (DockWidget->isFullScreen())
 				{
@@ -417,7 +418,7 @@ struct MainWindowPrivate
 	ads::CDockWidget *createQQuickWidget()
 	{
 		QQuickWidget *widget = new QQuickWidget();
-		ads::CDockWidget *dockWidget = DockManager->createDockWidget("Quick");
+		ads::CDockWidget *dockWidget = new ads::CDockWidget("Quick");
 		dockWidget->setWidget(widget);
 		return dockWidget;
 	}
@@ -432,7 +433,7 @@ struct MainWindowPrivate
 	{
 	   static int ActiveXCount = 0;
 	   QAxWidget* w = new QAxWidget("{6bf52a52-394a-11d3-b153-00c04f79faa6}", parent);
-	   ads::CDockWidget* DockWidget = DockManager->createDockWidget(QString("Active X %1").arg(ActiveXCount++));
+	   ads::CDockWidget* DockWidget = new ads::CDockWidget(QString("Active X %1").arg(ActiveXCount++));
 	   DockWidget->setWidget(w);
 	   ui.menuView->addAction(DockWidget->toggleViewAction());
 	   return DockWidget;
@@ -470,12 +471,12 @@ void MainWindowPrivate::createContent()
 	appendFeaturStringToWindowTitle(FileSystemWidget);
 
 	// Test custom factory - we inject a help button into the title bar
-	DockManager->setComponentsFactory(new CCustomComponentsFactory());
+	ads::CDockComponentsFactory::setFactory(new CCustomComponentsFactory());
 	auto TopDockArea = DockManager->addDockWidget(ads::TopDockWidgetArea, FileSystemWidget);
 	// Uncomment the next line if you would like to test the
 	// HideSingleWidgetTitleBar functionality
 	// TopDockArea->setDockAreaFlag(ads::CDockAreaWidget::HideSingleWidgetTitleBar, true);
-	DockManager->setComponentsFactory(ads::CDockComponentsFactory::factory());
+	ads::CDockComponentsFactory::resetDefaultFactory();
 
 	// We create a calendar widget and clear all flags to prevent the dock area
 	// from closing
@@ -510,7 +511,7 @@ void MainWindowPrivate::createContent()
 	auto TitleBar = DockArea->titleBar();
 	int Index = TitleBar->indexOf(TitleBar->tabBar());
 	TitleBar->insertWidget(Index + 1, CustomButton);
-	QObject::connect(CustomButton, &QToolButton::clicked, [DockArea, this]()
+	QObject::connect(CustomButton, &QToolButton::clicked, [=]()
 	{
 		auto DockWidget = createEditorWidget();
 		DockWidget->setFeature(ads::CDockWidget::DockWidgetDeleteOnClose, true);
@@ -768,9 +769,6 @@ CMainWindow::CMainWindow(QWidget *parent) :
 
 	// uncomment if you would like to enable dock widget auto hiding
     CDockManager::setAutoHideConfigFlags({CDockManager::DefaultAutoHideConfig});
-
-    // uncomment if you would like to disable closing auto hide widget with mouse click outside of auto hide container
-    //CDockManager::setAutoHideConfigFlag(CDockManager::AutoHideCloseOnOutsideMouseClick, false);
 
 	// uncomment if you would like to enable an equal distribution of the
 	// available size of a splitter to all contained dock widgets
