@@ -33,8 +33,6 @@
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QMenu>
-#include <QEvent>
-#include <QTimer>
 
 #include "AutoHideDockContainer.h"
 #include "AutoHideSideBar.h"
@@ -43,7 +41,6 @@
 #include "DockWidget.h"
 #include "FloatingDragPreview.h"
 #include "DockOverlay.h"
-#include "ads_globals.h"
 
 namespace ads
 {
@@ -58,7 +55,6 @@ struct AutoHideTabPrivate
     CAutoHideSideBar* SideBar = nullptr;
 	Qt::Orientation Orientation{Qt::Vertical};
 	QElapsedTimer TimeSinceHoverMousePress;
-	QTimer DragOverTimer;
 	bool MousePressed = false;
 	eDragState DragState = DraggingInactive;
 	QPoint GlobalDragStartMousePosition;
@@ -139,7 +135,7 @@ struct AutoHideTabPrivate
 	IFloatingWidget* createFloatingWidget(T* Widget)
 	{
 		auto w = new CFloatingDragPreview(Widget);
-		_this->connect(w, &CFloatingDragPreview::draggingCanceled, [this]()
+		_this->connect(w, &CFloatingDragPreview::draggingCanceled, [=]()
 		{
 			DragState = DraggingInactive;
 		});
@@ -256,14 +252,6 @@ CAutoHideTab::CAutoHideTab(QWidget* parent) :
 {
 	setAttribute(Qt::WA_NoMousePropagation);
 	setFocusPolicy(Qt::NoFocus);
-    if (CDockManager::testAutoHideConfigFlag(CDockManager::AutoHideOpenOnDragHover)) {
-        setAcceptDrops(true);
-    }
-
-    d->DragOverTimer.setInterval(CDockManager::configParam(
-    	CDockManager::AutoHideOpenOnDragHoverDelay_ms, 500).toInt());
-    d->DragOverTimer.setSingleShot(true);
-	connect(&d->DragOverTimer, &QTimer::timeout, this, &CAutoHideTab::onDragHoverDelayExpired);
 }
 
 
@@ -367,6 +355,7 @@ bool CAutoHideTab::event(QEvent* event)
 	case QEvent::Leave:
 		 d->forwardEventToDockContainer(event);
 		 break;
+
 	default:
 		break;
 	}
@@ -504,74 +493,48 @@ void CAutoHideTab::mouseReleaseEvent(QMouseEvent* ev)
 
 
 //============================================================================
-void CAutoHideTab::mouseMoveEvent(QMouseEvent *ev)
+void CAutoHideTab::mouseMoveEvent(QMouseEvent* ev)
 {
-	if (!(ev->buttons() & Qt::LeftButton)
-	    || d->isDraggingState(DraggingInactive))
-	{
-		d->DragState = DraggingInactive;
-		Super::mouseMoveEvent(ev);
-		return;
-	}
+    if (!(ev->buttons() & Qt::LeftButton) || d->isDraggingState(DraggingInactive))
+    {
+    	d->DragState = DraggingInactive;
+        Super::mouseMoveEvent(ev);
+        return;
+    }
 
-	// move floating window
-	if (d->isDraggingState(DraggingFloatingWidget))
-	{
-		d->FloatingWidget->moveFloating();
-		Super::mouseMoveEvent(ev);
-		return;
-	}
+    // move floating window
+    if (d->isDraggingState(DraggingFloatingWidget))
+    {
+        d->FloatingWidget->moveFloating();
+        Super::mouseMoveEvent(ev);
+        return;
+    }
 
-	// move tab
-	if (d->isDraggingState(DraggingTab))
-	{
-		// Moving the tab is always allowed because it does not mean moving the
-		// dock widget around
-		//d->moveTab(ev);
-	}
+    // move tab
+    if (d->isDraggingState(DraggingTab))
+    {
+        // Moving the tab is always allowed because it does not mean moving the
+    	// dock widget around
+    	//d->moveTab(ev);
+    }
 
-	auto MappedPos = mapToParent(ev->pos());
-	bool MouseOutsideBar = (MappedPos.x() < 0)
-	    || (MappedPos.x() > parentWidget()->rect().right());
-	// Maybe a fixed drag distance is better here ?
-	int DragDistanceY = qAbs(
-	    d->GlobalDragStartMousePosition.y()
-	        - internal::globalPositionOf(ev).y());
-	if (DragDistanceY >= CDockManager::startDragDistance() || MouseOutsideBar)
+    auto MappedPos = mapToParent(ev->pos());
+    bool MouseOutsideBar = (MappedPos.x() < 0) || (MappedPos.x() > parentWidget()->rect().right());
+    // Maybe a fixed drag distance is better here ?
+    int DragDistanceY = qAbs(d->GlobalDragStartMousePosition.y() - internal::globalPositionOf(ev).y());
+    if (DragDistanceY >= CDockManager::startDragDistance() || MouseOutsideBar)
 	{
-		// Floating is only allowed for widgets that are floatable
+    	// Floating is only allowed for widgets that are floatable
 		// We can create the drag preview if the widget is movable.
 		auto Features = d->DockWidget->features();
-		if (Features.testFlag(CDockWidget::DockWidgetFloatable)
-		    || (Features.testFlag(CDockWidget::DockWidgetMovable)))
-		{
-			d->startFloating();
-		}
-		return;
+        if (Features.testFlag(CDockWidget::DockWidgetFloatable) || (Features.testFlag(CDockWidget::DockWidgetMovable)))
+        {
+            d->startFloating();
+        }
+    	return;
 	}
 
-	Super::mouseMoveEvent(ev);
-}
-
-//============================================================================
-void CAutoHideTab::dragEnterEvent(QDragEnterEvent *ev)
-{
-	Q_UNUSED(ev);
-	if (CDockManager::testAutoHideConfigFlag(CDockManager::AutoHideOpenOnDragHover))
-	{
-		d->DragOverTimer.start();
-		ev->accept();
-	}
-}
-
-//============================================================================
-void CAutoHideTab::dragLeaveEvent(QDragLeaveEvent *ev)
-{
-	Q_UNUSED(ev);
-	if (CDockManager::testAutoHideConfigFlag(CDockManager::AutoHideOpenOnDragHover))
-	{
-		d->DragOverTimer.stop();
-	}
+    Super::mouseMoveEvent(ev);
 }
 
 
@@ -580,6 +543,7 @@ void CAutoHideTab::requestCloseDockWidget()
 {
 	d->DockWidget->requestCloseDockWidget();
 }
+
 
 //============================================================================
 int CAutoHideTab::tabIndex() const
@@ -590,30 +554,6 @@ int CAutoHideTab::tabIndex() const
 	}
 
 	return d->SideBar->indexOfTab(*this);
-}
-
-
-//============================================================================
-void CAutoHideTab::onDragHoverDelayExpired()
-{
-	static const char* const PropertyId = "ActiveDragOverAutoHideContainer";
-
-	// First we check if there is an active auto hide container that is visible
-	// In this case, we collapse it before we open the new one
-	auto v = d->DockWidget->dockManager()->property(PropertyId);
-	if (v.isValid())
-	{
-		auto ActiveAutoHideContainer = v.value<QPointer<CAutoHideDockContainer>>();
-		if (ActiveAutoHideContainer)
-		{
-			ActiveAutoHideContainer->collapseView(true);
-		}
-	}
-
-	auto AutoHideContainer = d->DockWidget->autoHideDockContainer();
-	AutoHideContainer->collapseView(false);
-	d->DockWidget->dockManager()->setProperty(PropertyId,
-        QVariant::fromValue(QPointer<CAutoHideDockContainer>(AutoHideContainer)));
 }
 
 

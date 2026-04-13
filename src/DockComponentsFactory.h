@@ -66,11 +66,9 @@ public:
 	virtual CDockAreaTitleBar* createDockAreaTitleBar(CDockAreaWidget* DockArea) const;
 
 	/**
-	 * This returns the default dock components factory instance.
-	 * If no components factory is assigned to a specific dock manager, this
-	 * global factory instance will be used.
+	 * Returns the default components factory
 	 */
-    static QSharedPointer<ads::CDockComponentsFactory> factory();
+	static const CDockComponentsFactory* factory();
 
 	/**
 	 * Sets a new default factory for creation of GUI elements.
@@ -83,6 +81,15 @@ public:
 	 */
 	static void resetDefaultFactory();
 };
+
+
+/**
+ * Convenience function to ease factory instance access
+ */
+inline const CDockComponentsFactory* componentsFactory()
+{
+	return CDockComponentsFactory::factory();
+}
 
 } // namespace ads
 

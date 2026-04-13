@@ -19,6 +19,8 @@
 #include <QToolBar>
 
 #include "DockAreaWidget.h"
+#include "DockAreaTitleBar.h"
+#include "DockAreaTabBar.h"
 #include "FloatingDockContainer.h"
 #include "DockComponentsFactory.h"
 
@@ -30,19 +32,16 @@ CMainWindow::CMainWindow(QWidget *parent)
     , ui(new Ui::CMainWindow)
 {
     ui->setupUi(this);
-	ads::CDockManager::setConfigFlag( ads::CDockManager::DockAreaHasCloseButton, false );
-	ads::CDockManager::setConfigFlag( ads::CDockManager::AllTabsHaveCloseButton, true );
-	ads::CDockManager::setConfigFlag( ads::CDockManager::DockAreaHasUndockButton, false );
-	ads::CDockManager::setConfigFlag( ads::CDockManager::DockAreaDynamicTabsMenuButtonVisibility, true );
-	ads::CDockManager::setConfigFlag( ads::CDockManager::DisableTabTextEliding, true );
-	ads::CDockManager::setConfigFlag( ads::CDockManager::DoubleClickUndocksWidget, false );
+    CDockManager::setConfigFlag(CDockManager::OpaqueSplitterResize, true);
+    CDockManager::setConfigFlag(CDockManager::XmlCompressionEnabled, false);
+    CDockManager::setConfigFlag(CDockManager::FocusHighlighting, true);
     DockManager = new CDockManager(this);
 
     // Set central widget
     QLabel* label = new QLabel();
     label->setText("This is a DockArea which is always visible, even if it does not contain any DockWidgets.");
     label->setAlignment(Qt::AlignCenter);
-    CDockWidget* CentralDockWidget = DockManager->createDockWidget("CentralWidget");
+    CDockWidget* CentralDockWidget = new CDockWidget("CentralWidget");
     CentralDockWidget->setWidget(label);
     CentralDockWidget->setFeature(ads::CDockWidget::NoTab, true);
     auto* CentralDockArea = DockManager->setCentralWidget(CentralDockWidget);
@@ -51,7 +50,7 @@ CMainWindow::CMainWindow(QWidget *parent)
     QTableWidget* table = new QTableWidget();
     table->setColumnCount(3);
     table->setRowCount(10);
-    CDockWidget* TableDockWidget = DockManager->createDockWidget("Table 1");
+    CDockWidget* TableDockWidget = new CDockWidget("Table 1");
     TableDockWidget->setWidget(table);
     TableDockWidget->setMinimumSizeHintMode(CDockWidget::MinimumSizeHintFromDockWidget);
     TableDockWidget->resize(250, 150);
@@ -63,7 +62,7 @@ CMainWindow::CMainWindow(QWidget *parent)
     table = new QTableWidget();
     table->setColumnCount(5);
     table->setRowCount(1020);
-    TableDockWidget = DockManager->createDockWidget("Table 2");
+    TableDockWidget = new CDockWidget("Table 2");
     TableDockWidget->setWidget(table);
     TableDockWidget->setMinimumSizeHintMode(CDockWidget::MinimumSizeHintFromDockWidget);
     TableDockWidget->resize(250, 150);
@@ -74,7 +73,7 @@ CMainWindow::CMainWindow(QWidget *parent)
     QTableWidget* propertiesTable = new QTableWidget();
     propertiesTable->setColumnCount(3);
     propertiesTable->setRowCount(10);
-    CDockWidget* PropertiesDockWidget = DockManager->createDockWidget("Properties");
+    CDockWidget* PropertiesDockWidget = new CDockWidget("Properties");
     PropertiesDockWidget->setWidget(propertiesTable);
     PropertiesDockWidget->setMinimumSizeHintMode(CDockWidget::MinimumSizeHintFromDockWidget);
     PropertiesDockWidget->resize(250, 150);
@@ -99,13 +98,8 @@ void CMainWindow::createPerspectiveUi()
 	PerspectiveComboBox = new QComboBox(this);
 	PerspectiveComboBox->setSizeAdjustPolicy(QComboBox::AdjustToContents);
 	PerspectiveComboBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-	connect(PerspectiveComboBox, &QComboBox::textActivated,
-        DockManager, &CDockManager::openPerspective);
-#else
 	connect(PerspectiveComboBox, SIGNAL(activated(const QString&)),
 		DockManager, SLOT(openPerspective(const QString&)));
-#endif
 	PerspectiveListAction->setDefaultWidget(PerspectiveComboBox);
 	ui->toolBar->addSeparator();
 	ui->toolBar->addAction(PerspectiveListAction);
