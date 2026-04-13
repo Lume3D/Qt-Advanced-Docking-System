@@ -11,7 +11,26 @@
 #    include "macos_helper.h"
 #endif
 namespace
-{};  // namespace
+{
+#ifdef Q_OS_WIN
+float nativeWindowDpr(HWND hwnd, float fallback)
+{
+    if (!hwnd)
+    {
+        return fallback;
+    }
+
+    const auto dpi = GetDpiForWindow(hwnd);
+    if (dpi == 0)
+    {
+        return fallback;
+    }
+
+    return static_cast<float>(dpi)
+           / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
+}
+#endif
+}  // namespace
 
 namespace ads
 {
@@ -51,6 +70,13 @@ struct StyledWindow::StyledWindowPrivate
 #ifdef Q_OS_WIN
     QWindow* proxyWindow_;
     HMENU sysMenu_{nullptr};
+    HBRUSH backgroundBrush_{nullptr};
+    HPOWERNOTIFY suspendResumeNotification_{nullptr};
+    bool cloakPending_{false};
+    bool cloaked_{false};
+    bool inSizeMove_{false};
+    bool pendingStateResizePaint_{false};
+    bool uncloakQueued_{false};
 #endif
 };
 
@@ -66,6 +92,14 @@ StyledWindow::StyledWindow(QWidget* parent, Qt::WindowFlags f,
 StyledWindow::~StyledWindow()
 {
 #ifdef Q_OS_WIN
+    if (d->suspendResumeNotification_)
+    {
+        UnregisterSuspendResumeNotification(d->suspendResumeNotification_);
+    }
+    if (d->backgroundBrush_)
+    {
+        DeleteObject(d->backgroundBrush_);
+    }
     delete d->proxyWindow_;
 #endif
     delete d;
@@ -178,16 +212,12 @@ bool StyledWindow::eventFilter(QObject* watched, QEvent* event)
 #elif defined(_WIN32)
         if (event->type() == QEvent::Resize)
         {
-            if (QOperatingSystemVersion::current().microVersion() > 22000)
-            {
-                DWORD gradient = 0x00101010;
-                DwmSetWindowAttribute((HWND)this->effectiveWinId(),
-                                      DWMWA_CAPTION_COLOR, &gradient,
-                                      sizeof(gradient));
-            }
+            updateWindowFrameAttributes();
 
             auto* widget = qobject_cast<QToolBar*>(watched);
-            MARGINS m = {0, 0, widget->size().height() * d->displayScale_, 0};
+            const auto titleBarHeight = static_cast<int>(
+                widget->size().height() * d->displayScale_ + 0.5f);
+            MARGINS m = {0, 0, titleBarHeight, 0};
             DwmExtendFrameIntoClientArea((HWND)this->effectiveWinId(), &m);
         }
 #endif
@@ -291,14 +321,46 @@ bool StyledWindow::event(QEvent* event)
 {
     auto native = QMainWindow::event(event);
 #ifdef Q_OS_WIN
+    if (event->type() == QEvent::Paint)
+    {
+        d->pendingStateResizePaint_ = false;
+
+        if (!d->cloakPending_)
+        {
+            return native;
+        }
+
+        if (!d->uncloakQueued_)
+        {
+            d->uncloakQueued_ = true;
+            QMetaObject::invokeMethod(
+                this,
+                [this]() {
+                    d->uncloakQueued_ = false;
+                    if (!d->cloakPending_ || !isVisible() || isMinimized())
+                    {
+                        return;
+                    }
+
+                    d->cloakPending_ = false;
+                    setWindowCloaked(false);
+                },
+                Qt::QueuedConnection);
+        }
+    }
     if (event->type() == QEvent::ScreenChangeInternal)
     {
         RECT rect;
-        GetWindowRect((HWND)this->effectiveWinId(), &rect);
-        updateWindowDpr(this->devicePixelRatio(),
-                        QRect(rect.left, rect.top, rect.right - rect.left,
-                              rect.bottom - rect.top),
-                        this->effectiveWinId());
+        const auto hwnd = reinterpret_cast<HWND>(this->effectiveWinId());
+        GetWindowRect(hwnd, &rect);
+        const auto dpr = nativeWindowDpr(hwnd, this->devicePixelRatioF());
+        if (dpr != d->displayScale_)
+        {
+            updateWindowDpr(dpr,
+                            QRect(rect.left, rect.top, rect.right - rect.left,
+                                  rect.bottom - rect.top),
+                            this->effectiveWinId());
+        }
     }
     if (event->type() == QEvent::Show)
     {
@@ -307,8 +369,9 @@ bool StyledWindow::event(QEvent* event)
             d->initResize_ = true;
 
             RECT rect;
-            GetWindowRect((HWND)this->effectiveWinId(), &rect);
-            updateWindowDpr(this->devicePixelRatio(),
+            const auto hwnd = reinterpret_cast<HWND>(this->effectiveWinId());
+            GetWindowRect(hwnd, &rect);
+            updateWindowDpr(nativeWindowDpr(hwnd, this->devicePixelRatioF()),
                             QRect(rect.left, rect.top, rect.right - rect.left,
                                   rect.bottom - rect.top),
                             this->effectiveWinId());
@@ -316,28 +379,33 @@ bool StyledWindow::event(QEvent* event)
             setResizeable(d->resizeable_);
             constructHintButtons();
             // Register for receiving WM_POWERBROADCAST event
-            RegisterSuspendResumeNotification((HANDLE)this->winId(),
-                                              DEVICE_NOTIFY_WINDOW_HANDLE);
+            d->suspendResumeNotification_ = RegisterSuspendResumeNotification(
+                reinterpret_cast<HANDLE>(this->winId()),
+                DEVICE_NOTIFY_WINDOW_HANDLE);
 
             auto style = GetClassLong((HWND)this->winId(), GCL_STYLE);
             style &= ~(CS_VREDRAW | CS_HREDRAW);
             SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
 
             initWindowBackground(false);
-            BOOL cloak = TRUE;
-            DwmSetWindowAttribute((HWND)this->effectiveWinId(), DWMWA_CLOAK,
-                                  &cloak, sizeof(cloak));
-
-            QTimer::singleShot(100, [this]() {
-                BOOL cloak = FALSE;
-                DwmSetWindowAttribute((HWND)this->effectiveWinId(), DWMWA_CLOAK,
-                                      &cloak, sizeof(cloak));
-            });
+            updateWindowFrameAttributes();
+            d->cloakPending_ = true;
+            d->uncloakQueued_ = false;
+            setWindowCloaked(true);
+            update();
+            if (auto* window = windowHandle())
+            {
+                window->requestUpdate();
+            }
         }
     }
 
     if (event->type() == QEvent::WindowStateChange)
     {
+        if (isVisible() && !isMinimized())
+        {
+            updateWindowFrameAttributes();
+        }
         if (d->maximize_)
         {
             d->maximize_->setIcon(QIcon(!isMaximized() ?
@@ -421,16 +489,13 @@ void StyledWindow::setSubToolbar(QToolBar* toolbar)
 
 void StyledWindow::setResizeable(bool resizeable)
 {
-    bool visible = isVisible();
     d->resizeable_ = resizeable;
-    HWND hwnd = (HWND)this->winId();
-    DWORD style = ::GetWindowLong(hwnd, GWL_STYLE) | WS_POPUP | WS_CAPTION
-                  | WS_EX_COMPOSITED;
+    HWND hwnd = reinterpret_cast<HWND>(this->winId());
+    LONG_PTR style = ::GetWindowLongPtr(hwnd, GWL_STYLE);
+    LONG_PTR exStyle = ::GetWindowLongPtr(hwnd, GWL_EXSTYLE);
 
-    if (d->resizeable_)
-    {
-        style |= WS_THICKFRAME;
-    }
+    style &= ~(WS_CAPTION | WS_MAXIMIZEBOX | WS_MINIMIZEBOX);
+    style |= WS_POPUP | WS_CAPTION | WS_THICKFRAME;
 
     if (windowFlags() & Qt::WindowMaximizeButtonHint)
     {
@@ -442,11 +507,16 @@ void StyledWindow::setResizeable(bool resizeable)
         style |= WS_MINIMIZEBOX;
     }
 
-    ::SetWindowLong(hwnd, GWL_STYLE, style);
+    exStyle |= WS_EX_COMPOSITED;
+
+    ::SetWindowLongPtr(hwnd, GWL_STYLE, style);
+    ::SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle);
+    ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
+                       | SWP_FRAMECHANGED | SWP_NOACTIVATE);
 
     const MARGINS shadow = {1, 1, 1, 1};
     DwmExtendFrameIntoClientArea(hwnd, &shadow);
-    setVisible(visible);
 }
 
 bool StyledWindow::isResizeable()
@@ -636,6 +706,7 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
 }
 void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
 {
+    d->displayScale_ = dpr;
     {
         SetWindowPos((HWND)wid, NULL, rect.left(), rect.top(), rect.width(),
                      rect.height(), SWP_NOZORDER | SWP_NOACTIVATE);
@@ -715,6 +786,16 @@ void StyledWindow::initWindowBackground(bool transparent)
 {
 #    ifdef _WIN32
     HWND hwnd = (HWND)this->window()->winId();
+    if (!d->backgroundBrush_)
+    {
+        d->backgroundBrush_ = CreateSolidBrush(RGB(0x10, 0x10, 0x10));
+    }
+    if (d->backgroundBrush_)
+    {
+        SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND,
+                        reinterpret_cast<LONG_PTR>(d->backgroundBrush_));
+    }
+
     HMODULE hUser = GetModuleHandle("user32.dll");
     if (hUser)
     {
@@ -738,6 +819,40 @@ void StyledWindow::initWindowBackground(bool transparent)
         }
     }
 #    endif
+}
+
+void StyledWindow::updateWindowFrameAttributes()
+{
+    const auto hwnd = reinterpret_cast<HWND>(this->effectiveWinId());
+    if (!hwnd)
+    {
+        return;
+    }
+
+    if (QOperatingSystemVersion::current().microVersion() > 22000)
+    {
+        const DWORD captionColor = 0x00101010;
+        DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &captionColor,
+                              sizeof(captionColor));
+    }
+}
+
+void StyledWindow::setWindowCloaked(bool cloaked)
+{
+    if (d->cloaked_ == cloaked)
+    {
+        return;
+    }
+
+    const auto hwnd = reinterpret_cast<HWND>(this->effectiveWinId());
+    if (!hwnd)
+    {
+        return;
+    }
+
+    const BOOL cloak = cloaked ? TRUE : FALSE;
+    DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &cloak, sizeof(cloak));
+    d->cloaked_ = cloaked;
 }
 
 void StyledWindow::showFullScreen()
@@ -1009,7 +1124,9 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     }
     case WM_DPICHANGED:
     {
-        auto dpr = HIWORD(msg->wParam) / 96;
+        const auto dpi = static_cast<UINT>(HIWORD(msg->wParam));
+        const auto dpr = static_cast<float>(dpi)
+                         / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
         RECT* const rect = (RECT*)msg->lParam;
         qDebug() << ("DPI Changed: ") << dpr;
         d->displayScale_ = dpr;
@@ -1022,6 +1139,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_SIZE:
     {
+        const bool wasJustMinimized = d->justMinimized_;
         if (msg->wParam == SIZE_RESTORED && d->justMinimized_)
         {
             d->justMinimized_ = false;
@@ -1030,6 +1148,19 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (msg->wParam == SIZE_MINIMIZED)
         {
             d->justMinimized_ = true;
+            d->pendingStateResizePaint_ = false;
+        }
+        else if (msg->wParam == SIZE_MAXIMIZED
+                 || (msg->wParam == SIZE_RESTORED && !wasJustMinimized))
+        {
+            d->pendingStateResizePaint_ = true;
+            RedrawWindow(msg->hwnd, nullptr, nullptr,
+                         RDW_INVALIDATE | RDW_NOERASE | RDW_ALLCHILDREN);
+            update();
+            if (auto* window = windowHandle())
+            {
+                window->requestUpdate();
+            }
         }
         return false;
     }
@@ -1041,7 +1172,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
             RECT frame = {0, 0, 0, 0};
             AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0);
 
-            double dpr = this->devicePixelRatioF();
+            const auto dpr = nativeWindowDpr(msg->hwnd, d->displayScale_);
 
             d->frames_.setLeft(abs(frame.left) / dpr + 0.5);
             d->frames_.setTop(abs(frame.bottom) / dpr + 0.5);
@@ -1105,10 +1236,12 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_ERASEBKGND:
     {
-        SetClassLongPtr(msg->hwnd, GCLP_HBRBACKGROUND,
-                        (LONG_PTR)CreateSolidBrush(0xFF101010));
-
-        return true;
+        if (d->pendingStateResizePaint_ || d->cloakPending_)
+        {
+            *result = 1;
+            return true;
+        }
+        break;
     }
     case WM_NCUAHDRAWCAPTION:
     case WM_NCUAHDRAWFRAME:
@@ -1271,12 +1404,64 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         return false;
     }
 
+    case WM_NCLBUTTONDBLCLK:
+    {
+        if (msg->wParam == HTCAPTION)
+        {
+            d->pendingStateResizePaint_ = true;
+            RedrawWindow(msg->hwnd, nullptr, nullptr,
+                         RDW_INVALIDATE | RDW_NOERASE | RDW_ALLCHILDREN);
+            update();
+            if (auto* window = windowHandle())
+            {
+                window->requestUpdate();
+            }
+
+            *result = DefWindowProcW(msg->hwnd, msg->message, msg->wParam,
+                                     msg->lParam);
+            return true;
+        }
+        return false;
+    }
+
+    case WM_ENTERSIZEMOVE:
+    {
+        d->inSizeMove_ = true;
+        break;
+    }
+
+    case WM_EXITSIZEMOVE:
+    {
+        d->inSizeMove_ = false;
+        RedrawWindow(msg->hwnd, nullptr, nullptr,
+                     RDW_INVALIDATE | RDW_ALLCHILDREN);
+        update();
+        if (auto* window = windowHandle())
+        {
+            window->requestUpdate();
+        }
+        break;
+    }
+
     case WM_STYLECHANGED:
     {
         if (msg->wParam == GWL_STYLE)
         {
-            setResizeable(d->resizeable_);
-            constructHintButtons();
+            const auto* style =
+                reinterpret_cast<const STYLESTRUCT*>(msg->lParam);
+            constexpr DWORD kFrameStyleMask = WS_CAPTION | WS_THICKFRAME
+                                              | WS_MINIMIZEBOX
+                                              | WS_MAXIMIZEBOX;
+            // Modal dialogs temporarily toggle owner styles such as
+            // WS_DISABLED. Ignore those changes so we do not force a full
+            // frame refresh and nudge the window position.
+            if (style
+                && (((style->styleOld ^ style->styleNew) & kFrameStyleMask)
+                    != 0))
+            {
+                setResizeable(d->resizeable_);
+                constructHintButtons();
+            }
         }
         break;
     }
@@ -1291,7 +1476,10 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     case WM_WINDOWPOSCHANGING:
     {
         const auto windowPos = reinterpret_cast<LPWINDOWPOS>(msg->lParam);
-        windowPos->flags |= SWP_NOCOPYBITS;
+        if (!d->inSizeMove_ && (d->pendingStateResizePaint_ || d->cloakPending_))
+        {
+            windowPos->flags |= SWP_NOCOPYBITS;
+        }
         break;
     }
     case WM_POWERBROADCAST:
@@ -1304,8 +1492,9 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
             // DPI LOST AFTER RESUME FROM SLEEP
             QTimer::singleShot(100, [this]() {
                 RECT rect;
-                GetWindowRect((HWND)this->winId(), &rect);
-                updateWindowDpr(d->displayScale_,
+                const auto hwnd = reinterpret_cast<HWND>(this->winId());
+                GetWindowRect(hwnd, &rect);
+                updateWindowDpr(nativeWindowDpr(hwnd, d->displayScale_),
                                 QRect(rect.left, rect.top, rect.right - rect.left,
                                       rect.bottom - rect.top),
                                 this->winId());
