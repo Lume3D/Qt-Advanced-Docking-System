@@ -637,18 +637,8 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
 void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
 {
     {
-        // Hack: Force centralWidget to re-calculate size
-        auto cw = centralWidget();
-        if (cw)
-        {
-            SetWindowPos((HWND)cw->effectiveWinId(), NULL, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER
-                             | SWP_NOOWNERZORDER | SWP_FRAMECHANGED
-                             | SWP_NOACTIVATE);
-        }
-        SetWindowPos((HWND)wid, NULL, rect.left(), rect.top(),
-                     rect.right() - rect.left(), rect.bottom() - rect.top(),
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos((HWND)wid, NULL, rect.left(), rect.top(), rect.width(),
+                     rect.height(), SWP_NOZORDER | SWP_NOACTIVATE);
 
         if (d->rightLayoutWidget_)
         {
