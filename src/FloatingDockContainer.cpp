@@ -56,7 +56,9 @@
 #include "linux/FloatingWidgetTitleBar.h"
 #include <xcb/xcb.h>
 #endif
-
+#ifdef Q_OS_MACOS
+#include <ApplicationServices/ApplicationServices.h>
+#endif
 namespace ads
 {
 #ifdef Q_OS_WIN
@@ -374,6 +376,7 @@ struct FloatingDockContainerPrivate
 	QPoint DragStartPos;
 	bool Hiding = false;
 	bool AutoHideChildren = true;
+	bool HideContentOnNextHide = false;
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
     QWidget* MouseEventHandler = nullptr;
     CFloatingWidgetTitleBar* TitleBar = nullptr;
@@ -459,7 +462,7 @@ struct FloatingDockContainerPrivate
 		}
 		else
 		{
-			_this->setWindowIcon(QApplication::windowIcon());
+			_this->setWindowIcon(CurrentWidget->windowIcon());
 		}
 	}
 
@@ -719,14 +722,33 @@ CFloatingDockContainer::CFloatingDockContainer(CDockManager *DockManager) :
 				this, &CFloatingDockContainer::onMaximizeRequest);
 	}
 #else
-	setWindowFlags(
-	    Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint);
+
+	auto env = qgetenv("ADS_LUME_UseCustomWindowFrame").toUpper();
+	if (env == "1") {
+		// Using custom window frame
+		setWindowFlags(windowFlags() &~ Qt::WindowMinimizeButtonHint);
+	} else {
+		setWindowFlags(
+		    Qt::Window | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint);
+	}
+
 	QBoxLayout *l = new QBoxLayout(QBoxLayout::TopToBottom);
 	l->setContentsMargins(0, 0, 0, 0);
 	l->setSpacing(0);
-	setLayout(l);
 	l->addWidget(d->DockContainer);
+#if defined(ADS_FLOATING_MAINWINDOW)
+	QWidget* CentralWidget = new QWidget();
+	CentralWidget->setLayout(l);
+	setCentralWidget(CentralWidget);
+#else
+	setLayout(l);
 #endif
+#endif
+
+	if (CDockManager::testConfigFlag(CDockManager::UseNativeWindows))
+	{
+		winId();
+	}
 
 	DockManager->registerFloatingWidget(this);
 }
@@ -758,6 +780,12 @@ CFloatingDockContainer::CFloatingDockContainer(CDockWidget *DockWidget) :
     }
 
     d->DockManager->notifyWidgetOrAreaRelocation(DockWidget);
+
+	const auto Features = DockWidget->features();
+	if (Features.testFlag(CDockWidget::DockWidgetFeature::ParentlessFloating))
+	{
+		setParent(nullptr);
+	}
 }
 
 
@@ -845,6 +873,12 @@ void CFloatingDockContainer::changeEvent(QEvent *event)
 				this->showMaximized();
 			}
 		}
+#if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
+        if (d->TitleBar)
+        {
+            d->TitleBar->setVisible(!(isFloating() && isFullScreen()));
+        }
+#endif
 		break;
 
 	default:
@@ -860,7 +894,6 @@ bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *mess
 bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *message, qintptr *result)
 #endif
 {
-	QWidget::nativeEvent(eventType, message, result);
 	MSG *msg = static_cast<MSG*>(message);
 	switch (msg->message)
 	{
@@ -877,6 +910,15 @@ bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *mess
 			 if (msg->wParam == HTCAPTION && d->isState(DraggingInactive))
 			 {
 				ADS_PRINT("CFloatingDockContainer::nativeEvent WM_NCLBUTTONDOWN");
+				const auto Config = d->DockManager->configFlags();
+				if (Config.testFlag(CDockManager::eConfigFlag::UseShiftDocking))
+				{
+					const bool ShiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0x8000;
+					if (!ShiftDown)
+					{
+						break;
+					}
+				}
 				d->DragStartPos = pos();
 				d->setState(DraggingMousePressed);
 			 }
@@ -910,6 +952,9 @@ bool CFloatingDockContainer::nativeEvent(const QByteArray &eventType, void *mess
 			 }
 			 break;
 	}
+#if defined(ADS_STYLED_WINDOW)
+    return StyledWindow::nativeEvent(eventType, message, result);
+#endif
 	return false;
 }
 #endif
@@ -948,6 +993,15 @@ void CFloatingDockContainer::closeEvent(QCloseEvent *event)
 		return;
 	}
 
+	// New bug (QWebEngineView reload side effect):
+	// when a WebEngine-based dock is tabified into a floating container, the
+	// embedded native/web process can trigger delayed hide/show cycles on the
+	// floating window. If every non-spontaneous hide propagates to
+	// DockWidget->toggleView(false), unrelated tabs are marked closed and seem
+	// to "disappear". We therefore arm HideContentOnNextHide only for the 
+	// explicit close path.
+	d->HideContentOnNextHide = true;
+
 	// In Qt version after 5.9.2 there seems to be a bug that causes the
 	// QWidget::event() function to not receive any NonClientArea mouse
 	// events anymore after a close/show cycle. The bug is reported here:
@@ -974,6 +1028,15 @@ void CFloatingDockContainer::hideEvent(QHideEvent *event)
     {
         return;
     }
+
+	// Only a close operation should propagate hide->toggleView(false) to
+	// child dock widgets. Generic hide/show cycles (e.g. from platform or
+	// embedded native content) must not change dock open/closed state.
+	if (!d->HideContentOnNextHide)
+	{
+		return;
+	}
+	d->HideContentOnNextHide = false;
 
 	if ( d->AutoHideChildren )
 	{
@@ -1231,6 +1294,15 @@ bool CFloatingDockContainer::event(QEvent *e)
 		if (e->type() == QEvent::NonClientAreaMouseButtonPress && QGuiApplication::mouseButtons().testFlag(Qt::LeftButton))
 #endif
 		{
+            const auto Config = d->DockManager->configFlags();
+            if (Config.testFlag(CDockManager::eConfigFlag::UseShiftDocking))
+            {
+                const bool ShiftDown = (CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState) & kCGEventFlagMaskShift);
+                if (!ShiftDown)
+                {
+                    break;
+                }
+            }
 			ADS_PRINT("FloatingWidget::event Event::NonClientAreaMouseButtonPress" << e->type());
 			d->DragStartPos = pos();
 			d->setState(DraggingMousePressed);
@@ -1281,7 +1353,12 @@ bool CFloatingDockContainer::event(QEvent *e)
 #if (ADS_DEBUG_LEVEL > 0)
 	qDebug() << QTime::currentTime() << "CFloatingDockContainer::event " << e->type();
 #endif
+
+#if defined(ADS_STYLED_WINDOW)
+    return StyledWindow::event(e);
+#else
 	return QWidget::event(e);
+#endif
 }
 
 
@@ -1331,7 +1408,8 @@ void CFloatingDockContainer::onMaximizeRequest()
 //============================================================================
 void CFloatingDockContainer::showNormal(bool fixGeometry)
 {
-	if (windowState() == Qt::WindowMaximized)
+    if ( (windowState() & Qt::WindowMaximized) != 0 ||
+         (windowState() & Qt::WindowFullScreen) != 0)
 	{
 		QRect oldNormal = normalGeometry();
 		Super::showNormal();
