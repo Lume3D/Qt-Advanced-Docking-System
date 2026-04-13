@@ -55,6 +55,8 @@ public slots:
 
 protected:
     void initWindowBackground(bool transparent = true);
+    void updateWindowFrameAttributes();
+    void setWindowCloaked(bool cloaked);
     void setResizeable(bool resizeable = true);
     bool isResizeable();
     void setResizeableAreaWidth(int width = 5);
