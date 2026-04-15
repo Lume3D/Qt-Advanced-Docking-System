@@ -49,7 +49,7 @@ void WidgetEventHelper::SetFirstMove(bool firstEnter)
     firstMove_ = firstEnter;
 }
 
-bool WidgetEventHelper::HandleMousePress(long* result)
+bool WidgetEventHelper::HandleMousePress(Q_RESULT_TYPE result)
 {
     *result = 0;
     if (widget_) {
@@ -61,7 +61,7 @@ bool WidgetEventHelper::HandleMousePress(long* result)
     return false;
 }
 
-bool WidgetEventHelper::HandleMouseRelease(long* result, bool isNClient)
+bool WidgetEventHelper::HandleMouseRelease(Q_RESULT_TYPE result, bool isNClient)
 {
     *result = 0;
     if (widget_) {

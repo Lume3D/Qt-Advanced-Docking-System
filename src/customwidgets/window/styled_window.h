@@ -4,6 +4,7 @@
 #include <QMainWindow>
 
 #include "ads_globals.h"
+#include "type_versions.h"
 
 class QMenu;
 class QLabel;
@@ -65,8 +66,10 @@ protected:
     void setContentsMargins(const QMargins& margins);
     void setContentsMargins(int left, int top, int right, int bottom);
     void constructHintButtons();
+
     bool nativeEvent(const QByteArray& eventType, void* message,
-                     long* result) override;
+                     Q_RESULT_TYPE result) override;
+
     bool isOutOfWidget(QWidget* widget);
     QMenu* createPopupMenu() override;
 

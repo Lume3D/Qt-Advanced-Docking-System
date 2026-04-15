@@ -26,8 +26,7 @@ float nativeWindowDpr(HWND hwnd, float fallback)
         return fallback;
     }
 
-    return static_cast<float>(dpi)
-           / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
+    return static_cast<float>(dpi) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
 }
 #endif
 }  // namespace
@@ -256,7 +255,7 @@ void StyledWindow::initWindowTitle()
     d->windowHint_->setMovable(false);
     d->windowHint_->setFloatable(false);
     d->windowHint_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    d->windowHint_->layout()->setMargin(0);
+    d->windowHint_->layout()->setContentsMargins(0, 0, 0, 0);
     d->windowHint_->layout()->setSpacing(0);
     d->windowHint_->setWindowFlags(Qt::WindowTitleHint);
 
@@ -796,7 +795,7 @@ void StyledWindow::initWindowBackground(bool transparent)
                         reinterpret_cast<LONG_PTR>(d->backgroundBrush_));
     }
 
-    HMODULE hUser = GetModuleHandle("user32.dll");
+    HMODULE hUser = GetModuleHandleA("user32.dll");
     if (hUser)
     {
         pfnSetWindowCompositionAttribute setWindowCompositionAttribute =
@@ -903,8 +902,9 @@ void StyledWindow::showSystemMenu(QWidget* widget, const QPoint& pos)
         }
     }
 }
+
 bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
-                               long* result)
+                               Q_RESULT_TYPE result)
 {
 #    if (QT_VERSION == QT_VERSION_CHECK(5, 11, 1))
     MSG* msg = *reinterpret_cast<MSG**>(message);
@@ -1417,8 +1417,8 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                 window->requestUpdate();
             }
 
-            *result = DefWindowProcW(msg->hwnd, msg->message, msg->wParam,
-                                     msg->lParam);
+            *result =
+                DefWindowProcW(msg->hwnd, msg->message, msg->wParam, msg->lParam);
             return true;
         }
         return false;
@@ -1447,17 +1447,14 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         if (msg->wParam == GWL_STYLE)
         {
-            const auto* style =
-                reinterpret_cast<const STYLESTRUCT*>(msg->lParam);
+            const auto* style = reinterpret_cast<const STYLESTRUCT*>(msg->lParam);
             constexpr DWORD kFrameStyleMask = WS_CAPTION | WS_THICKFRAME
-                                              | WS_MINIMIZEBOX
-                                              | WS_MAXIMIZEBOX;
+                                              | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
             // Modal dialogs temporarily toggle owner styles such as
             // WS_DISABLED. Ignore those changes so we do not force a full
             // frame refresh and nudge the window position.
             if (style
-                && (((style->styleOld ^ style->styleNew) & kFrameStyleMask)
-                    != 0))
+                && (((style->styleOld ^ style->styleNew) & kFrameStyleMask) != 0))
             {
                 setResizeable(d->resizeable_);
                 constructHintButtons();

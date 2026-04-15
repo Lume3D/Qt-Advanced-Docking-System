@@ -1,10 +1,8 @@
 #ifndef ADS_QWIDGET_EVENT_HELPER_H
 #define ADS_QWIDGET_EVENT_HELPER_H
 
-#include <QObject>
-
 class QWidget;
-
+#include "type_versions.h"
 class WidgetEventHelper : QObject {
     Q_OBJECT
 public:
@@ -20,8 +18,8 @@ public:
 
     void SetFirstMove(bool firstEnter);
 
-    bool HandleMousePress(long* result);
-    bool HandleMouseRelease(long* result, bool isNClient = true);
+    bool HandleMousePress(Q_RESULT_TYPE result);
+    bool HandleMouseRelease(Q_RESULT_TYPE result, bool isNClient = true);
     void HandleMouseMove();
 
     void SendMouseRelease(bool inWidgetRect);
