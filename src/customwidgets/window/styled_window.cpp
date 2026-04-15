@@ -1,6 +1,10 @@
 #include "styled_window.h"
 
+#include <QCoreApplication>
+#include <QLayout>
+
 #include "utils.h"
+
 
 #ifdef Q_OS_WIN
 #    include "widget_event_helper.h"
@@ -278,9 +282,6 @@ void StyledWindow::initWindowTitle()
     font.setWeight(font.Bold);
     d->titleLabel_->setFont(font);
     d->titleLabel_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
-    // d->titleLabel_->setMaximumWidth(292);  // Todo: Make sure we have a good
-    //                                        // maximum width
-
     connect(this, &QMainWindow::windowTitleChanged, this,
             [this](QString title) { this->d->titleLabel_->setText(title); });
 
@@ -713,7 +714,10 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
 
 void StyledWindow::syncWindowHintGeometry()
 {
-#if QT_VERSION_MAJOR >= 6
+    ::SetWindowPos((HWND)this->winId(), nullptr, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOZORDER | SWP_NOSIZE | SWP_NOOWNERZORDER
+                       | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+#    if QT_VERSION_MAJOR >= 6
     if (!d->windowHint_)
     {
         return;
@@ -729,7 +733,7 @@ void StyledWindow::syncWindowHintGeometry()
     const auto size = d->windowHint_->size();
     QResizeEvent rsEvent(size, size);
     QApplication::sendEvent(d->windowHint_, &rsEvent);
-#endif
+#    endif
 }
 
 void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
