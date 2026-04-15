@@ -1,4 +1,4 @@
-#pragma 0
+#pragma once
 #ifndef TYPE_VERSION
 #define TYPE_VERSION
 #include <QObject>

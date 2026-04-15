@@ -258,7 +258,6 @@ void StyledWindow::initWindowTitle()
     d->windowHint_->layout()->setContentsMargins(0, 0, 0, 0);
     d->windowHint_->layout()->setSpacing(0);
     d->windowHint_->setWindowFlags(Qt::WindowTitleHint);
-
 #ifdef Q_OS_WIN
     if (!d->logo_)
     {
@@ -313,7 +312,7 @@ void StyledWindow::initWindowTitle()
     addIgnoreWidget(d->rightLayoutWidget_);
     addIgnoreWidget(d->titleLabel_);
 #endif
-    setFocusProxy(d->windowHint_);
+    // setFocusProxy(d->windowHint_);
 }
 
 bool StyledWindow::event(QEvent* event)
@@ -361,6 +360,10 @@ bool StyledWindow::event(QEvent* event)
                             this->effectiveWinId());
         }
     }
+    if (event->type() == QEvent::Resize)
+    {
+        syncWindowHintGeometry();
+    }
     if (event->type() == QEvent::Show)
     {
         if (!d->initResize_)
@@ -397,6 +400,7 @@ bool StyledWindow::event(QEvent* event)
                 window->requestUpdate();
             }
         }
+        syncWindowHintGeometry();
     }
 
     if (event->type() == QEvent::WindowStateChange)
@@ -405,6 +409,7 @@ bool StyledWindow::event(QEvent* event)
         {
             updateWindowFrameAttributes();
         }
+        syncWindowHintGeometry();
         if (d->maximize_)
         {
             d->maximize_->setIcon(QIcon(!isMaximized() ?
@@ -622,24 +627,26 @@ void StyledWindow::constructHintButtons()
                         {
                             return;
                         }
-                        if (this->isMaximized())
+                        const auto hwnd =
+                            reinterpret_cast<HWND>(this->effectiveWinId());
+                        if (!hwnd)
                         {
-                            if (W_10)
-                            {
-                                this->setContentsMargins(
-                                    QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
-                                             FRAME_THICKNESS, FRAME_THICKNESS));
-                            }
-                            this->showNormal();
+                            return;
                         }
-                        else
+
+                        d->pendingStateResizePaint_ = true;
+                        RedrawWindow(hwnd, nullptr, nullptr,
+                                     RDW_INVALIDATE | RDW_NOERASE
+                                         | RDW_ALLCHILDREN);
+                        update();
+                        if (auto* window = windowHandle())
                         {
-                            if (W_10)
-                            {
-                                this->setContentsMargins(QMargins());
-                            }
-                            this->showMaximized();
+                            window->requestUpdate();
                         }
+
+                        const auto command =
+                            this->isMaximized() ? SC_RESTORE : SC_MAXIMIZE;
+                        SendMessageW(hwnd, WM_SYSCOMMAND, command, 0);
                     });
             }
 
@@ -703,6 +710,28 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
     d->margins_.setRight(right);
     d->margins_.setBottom(bottom);
 }
+
+void StyledWindow::syncWindowHintGeometry()
+{
+#if QT_VERSION_MAJOR >= 6
+    if (!d->windowHint_)
+    {
+        return;
+    }
+
+    d->windowHint_->updateGeometry();
+    if (auto* layout = d->windowHint_->layout())
+    {
+        layout->invalidate();
+        layout->activate();
+    }
+
+    const auto size = d->windowHint_->size();
+    QResizeEvent rsEvent(size, size);
+    QApplication::sendEvent(d->windowHint_, &rsEvent);
+#endif
+}
+
 void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
 {
     d->displayScale_ = dpr;
@@ -727,9 +756,7 @@ void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
             }
             d->rightLayoutWidget_->setMinimumWidth(minimumWidth);
         }
-        auto rsEvent =
-            QResizeEvent(d->windowHint_->size(), d->windowHint_->size());
-        QApplication::sendEvent(d->windowHint_, &rsEvent);
+        syncWindowHintGeometry();
     }
 }
 
@@ -938,15 +965,16 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         if (this->isVisible())
         {
+            const bool isMaximized = ::IsZoomed(msg->hwnd) != FALSE;
             const auto rect =
                 msg->wParam ?
                     &(reinterpret_cast<LPNCCALCSIZE_PARAMS>(msg->lParam))
                          ->rgrc[0] :
                     reinterpret_cast<LPRECT>(msg->lParam);
 
-            if (!this->isMaximized())
+            if (!isMaximized)
             {
-                const auto oriTop = rect->top;
+                const RECT oriRect = *rect;
                 const auto oriResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE,
                                                         msg->wParam, msg->lParam);
                 if (oriResult)
@@ -954,7 +982,11 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                     *result = oriResult;
                     return true;
                 }
-                rect->top = oriTop;
+                // In normal state Qt6 can drift away from the visible HWND
+                // bounds if we keep DefWindowProc's hidden frame insets here.
+                // Preserve the original rect so the Qt client matches the
+                // actual visible window bounds.
+                *rect = oriRect;
             }
             *result = false;
             return true;

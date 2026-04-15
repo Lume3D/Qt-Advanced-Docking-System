@@ -75,6 +75,7 @@ protected:
 
     void forceRedraw();
     void updateWindowDpr(float dpr, QRect rect, WId wid);
+    void syncWindowHintGeometry();
 
 private slots:
     void onTitleBarDestroyed();
