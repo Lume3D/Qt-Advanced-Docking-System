@@ -2,9 +2,9 @@
 
 #include <QCoreApplication>
 #include <QLayout>
+#include <QPointer>
 
 #include "utils.h"
-
 
 #ifdef Q_OS_WIN
 #    include "widget_event_helper.h"
@@ -80,6 +80,8 @@ struct StyledWindow::StyledWindowPrivate
     bool inSizeMove_{false};
     bool pendingStateResizePaint_{false};
     bool uncloakQueued_{false};
+    bool focusRestoreQueued_{false};
+    QPointer<QWidget> lastFocusedWidget_;
 #endif
 };
 
@@ -123,6 +125,10 @@ void StyledWindow::init()
     d->titleBar_ = Q_NULLPTR;
     d->borderWidth_ = 5;
     setResizeableAreaWidth(8);
+
+    QObject::connect(
+        qApp, &QApplication::focusChanged, this,
+        [this](QWidget*, QWidget* now) { rememberFocusedWidget(now); });
 #endif
 
     Qt::WindowFlags flags;
@@ -419,6 +425,10 @@ bool StyledWindow::event(QEvent* event)
                                       .pixmap(18, 18));
         }
     }
+    if (event->type() == QEvent::WindowActivate)
+    {
+        queueRestoreClientFocus();
+    }
 #endif
 #ifdef Q_OS_MACOS
     if (event->type() != QEvent::DeferredDelete)
@@ -445,6 +455,7 @@ void StyledWindow::setIcon(QIcon icon)
     d->logo_ = new QPushButton(icon, "", this);
     d->logo_->setFixedWidth(21);
     d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    d->logo_->setFocusPolicy(Qt::NoFocus);
     d->logo_->setProperty("class", "menuWindowBt");
 
     QObject::connect(d->logo_, &QAbstractButton::released, this, [this]() {
@@ -541,6 +552,7 @@ void StyledWindow::setTitleBar(QWidget* titlebar)
     d->titleBar_ = titlebar;
     if (!titlebar)
         return;
+    titlebar->setFocusPolicy(Qt::NoFocus);
     connect(titlebar, SIGNAL(destroyed(QObject*)), this,
             SLOT(onTitleBarDestroyed()));
 }
@@ -586,6 +598,7 @@ void StyledWindow::constructHintButtons()
                 d->minimize_->setProperty("class", "minimizeWindowBt");
                 d->minimize_->setSizePolicy(QSizePolicy::Fixed,
                                             QSizePolicy::Expanding);
+                d->minimize_->setFocusPolicy(Qt::NoFocus);
                 d->minimizeHelper_->SetWidget(d->minimize_);
                 QObject::connect(d->minimize_, &QAbstractButton::released, this,
                                  [this]() {
@@ -620,6 +633,7 @@ void StyledWindow::constructHintButtons()
                 d->maximize_->setProperty("class", "maximizeWindowBt");
                 d->maximize_->setSizePolicy(QSizePolicy::Fixed,
                                             QSizePolicy::Expanding);
+                d->maximize_->setFocusPolicy(Qt::NoFocus);
                 d->maximizeHelper_->SetWidget(d->maximize_);
 
                 QObject::connect(
@@ -645,8 +659,8 @@ void StyledWindow::constructHintButtons()
                             window->requestUpdate();
                         }
 
-                        const auto command =
-                            this->isMaximized() ? SC_RESTORE : SC_MAXIMIZE;
+                        const auto command = this->isMaximized() ? SC_RESTORE :
+                                                                   SC_MAXIMIZE;
                         SendMessageW(hwnd, WM_SYSCOMMAND, command, 0);
                     });
             }
@@ -672,6 +686,7 @@ void StyledWindow::constructHintButtons()
                 d->close_->setProperty("class", "closeWindowBt");
                 d->close_->setSizePolicy(QSizePolicy::Fixed,
                                          QSizePolicy::Expanding);
+                d->close_->setFocusPolicy(Qt::NoFocus);
                 d->closeHelper_->SetWidget(d->close_);
 
                 QObject::connect(d->close_, &QAbstractButton::released, this,
@@ -734,6 +749,97 @@ void StyledWindow::syncWindowHintGeometry()
     QResizeEvent rsEvent(size, size);
     QApplication::sendEvent(d->windowHint_, &rsEvent);
 #    endif
+}
+
+bool StyledWindow::isTitleBarChrome(const QWidget* widget) const
+{
+    if (!widget)
+    {
+        return false;
+    }
+
+    if (widget == d->titleBar_)
+    {
+        return true;
+    }
+
+    return d->titleBar_
+           && d->titleBar_->isAncestorOf(const_cast<QWidget*>(widget));
+}
+
+void StyledWindow::rememberFocusedWidget(QWidget* widget)
+{
+    if (!widget || widget->window() != this || isTitleBarChrome(widget))
+    {
+        return;
+    }
+
+    d->lastFocusedWidget_ = widget;
+}
+
+void StyledWindow::restoreClientFocus()
+{
+    if (!isVisible() || isMinimized() || !isActiveWindow()
+        || QApplication::activePopupWidget())
+    {
+        return;
+    }
+
+    QWidget* current = QApplication::focusWidget();
+    if (current && current->window() == this && !isTitleBarChrome(current))
+    {
+        rememberFocusedWidget(current);
+        return;
+    }
+
+    QWidget* target = d->lastFocusedWidget_;
+    if (!target || target->window() != this || isTitleBarChrome(target)
+        || target->focusPolicy() == Qt::NoFocus || !target->isVisible()
+        || !target->isEnabled())
+    {
+        target = nullptr;
+    }
+
+    if (!target && centralWidget())
+    {
+        auto* centralFocus = centralWidget()->focusWidget();
+        if (centralFocus && centralFocus->window() == this
+            && !isTitleBarChrome(centralFocus)
+            && centralFocus->focusPolicy() != Qt::NoFocus
+            && centralFocus->isVisible() && centralFocus->isEnabled())
+        {
+            target = centralFocus;
+        }
+    }
+
+    if (!target && centralWidget()
+        && centralWidget()->focusPolicy() != Qt::NoFocus)
+    {
+        target = centralWidget();
+    }
+
+    if (target)
+    {
+        target->setFocus(Qt::ActiveWindowFocusReason);
+        d->lastFocusedWidget_ = target;
+    }
+}
+
+void StyledWindow::queueRestoreClientFocus()
+{
+    if (d->focusRestoreQueued_)
+    {
+        return;
+    }
+
+    d->focusRestoreQueued_ = true;
+    QMetaObject::invokeMethod(
+        this,
+        [this]() {
+            d->focusRestoreQueued_ = false;
+            restoreClientFocus();
+        },
+        Qt::QueuedConnection);
 }
 
 void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
@@ -1495,6 +1601,21 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                 setResizeable(d->resizeable_);
                 constructHintButtons();
             }
+        }
+        break;
+    }
+
+    case WM_SETFOCUS:
+    {
+        queueRestoreClientFocus();
+        break;
+    }
+
+    case WM_ACTIVATE:
+    {
+        if (LOWORD(msg->wParam) != WA_INACTIVE)
+        {
+            queueRestoreClientFocus();
         }
         break;
     }

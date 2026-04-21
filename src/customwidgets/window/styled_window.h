@@ -76,6 +76,10 @@ protected:
     void forceRedraw();
     void updateWindowDpr(float dpr, QRect rect, WId wid);
     void syncWindowHintGeometry();
+    bool isTitleBarChrome(const QWidget* widget) const;
+    void rememberFocusedWidget(QWidget* widget);
+    void restoreClientFocus();
+    void queueRestoreClientFocus();
 
 private slots:
     void onTitleBarDestroyed();
