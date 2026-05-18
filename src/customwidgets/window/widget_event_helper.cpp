@@ -4,6 +4,26 @@
 #include <QMouseEvent>
 #include <QWidget>
 #include <QApplication>
+#include <QStyle>
+
+namespace {
+void UpdateHoverState(QWidget* widget, bool hovered)
+{
+    if (!widget) {
+        return;
+    }
+    if (widget->property("hovered").toBool() == hovered
+        && widget->testAttribute(Qt::WA_UnderMouse) == hovered) {
+        return;
+    }
+
+    widget->setAttribute(Qt::WA_UnderMouse, hovered);
+    widget->setProperty("hovered", hovered);
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
+}
+} // namespace
 
 WidgetEventHelper::WidgetEventHelper(QObject* parent)
     : QObject(parent),
@@ -21,6 +41,7 @@ WidgetEventHelper::~WidgetEventHelper() {}
 void WidgetEventHelper::SetWidget(QWidget* widget)
 {
     widget_ = widget;
+    UpdateHoverState(widget_, false);
 }
 
 void WidgetEventHelper::ReleaseFlag()
@@ -107,16 +128,16 @@ void WidgetEventHelper::HandleMouseMove()
 
 void WidgetEventHelper::SendMouseEnter()
 {
+    UpdateHoverState(widget_, true);
     QEvent event(QEvent::Enter);
     QApplication::sendEvent(widget_, &event);
-    widget_->update();
 }
 
 void WidgetEventHelper::SendMouseLeave()
 {
+    UpdateHoverState(widget_, false);
     QEvent event(QEvent::Leave);
     QApplication::sendEvent(widget_, &event);
-    widget_->update();
 }
 
 void WidgetEventHelper::SendMousePress()

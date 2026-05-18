@@ -32,6 +32,12 @@ float nativeWindowDpr(HWND hwnd, float fallback)
 
     return static_cast<float>(dpi) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
 }
+HRESULT forceDarkMode(HWND hwnd)
+{
+    BOOL value = TRUE;
+    return DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value,
+                                 sizeof(value));
+}
 #endif
 }  // namespace
 
@@ -81,6 +87,7 @@ struct StyledWindow::StyledWindowPrivate
     bool pendingStateResizePaint_{false};
     bool uncloakQueued_{false};
     bool focusRestoreQueued_{false};
+    bool darkModeSettingGuard_{false};
     QPointer<QWidget> lastFocusedWidget_;
 #endif
 };
@@ -397,6 +404,8 @@ bool StyledWindow::event(QEvent* event)
             SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
 
             initWindowBackground(false);
+            forceDarkMode(HWND(effectiveWinId()));
+
             updateWindowFrameAttributes();
             d->cloakPending_ = true;
             d->uncloakQueued_ = false;
@@ -1616,6 +1625,40 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (LOWORD(msg->wParam) != WA_INACTIVE)
         {
             queueRestoreClientFocus();
+        }
+        break;
+    }
+
+    case WM_THEMECHANGED:
+    {
+        if (!d->darkModeSettingGuard_)
+        {
+            d->darkModeSettingGuard_ = true;
+            QTimer::singleShot(100, [this]() {
+                forceDarkMode(HWND(internalWinId()));
+                d->darkModeSettingGuard_ = false;
+            });
+            *result = 0;
+            return true;
+        }
+        break;
+    }
+
+    case WM_SETTINGCHANGE:
+    {
+        if (wcscmp(reinterpret_cast<LPCWSTR>(msg->lParam), L"ImmersiveColorSet")
+            == 0)
+        {
+            if (!d->darkModeSettingGuard_)
+            {
+                d->darkModeSettingGuard_ = true;
+                QTimer::singleShot(100, [this]() {
+                    forceDarkMode(HWND(internalWinId()));
+                    d->darkModeSettingGuard_ = false;
+                });
+                *result = 0;
+                return true;
+            }
         }
         break;
     }
