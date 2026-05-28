@@ -147,6 +147,10 @@ void StyledWindow::init()
 #elif defined(__APPLE__)
     flags |= Qt::WindowFullscreenButtonHint;
     flags |= Qt::CustomizeWindowHint;
+
+#    if QT_VERSION_MAJOR >= 6
+    this->setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea, false);
+#    endif
 #endif
 
     setWindowFlags(flags);
