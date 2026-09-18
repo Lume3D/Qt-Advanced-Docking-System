@@ -1053,7 +1053,13 @@ bool StyledWindow::onThemeChanged(tagMSG* msg, Q_RESULT_TYPE result)
 
 bool StyledWindow::onSettingChange(tagMSG* msg, Q_RESULT_TYPE result)
 {
-    if (wcscmp(reinterpret_cast<LPCWSTR>(msg->lParam), L"ImmersiveColorSet") == 0)
+    // lParam names the area that changed, but it is null for many system
+    // parameters -- including SPI_SETWORKAREA, which is broadcast whenever a
+    // monitor is added, removed or resized. Handing that to wcscmp faults
+    // inside the CRT, which surfaces as STATUS_FATAL_USER_CALLBACK_EXCEPTION
+    // because we are inside a window procedure.
+    const auto* changedArea = reinterpret_cast<LPCWSTR>(msg->lParam);
+    if (changedArea && wcscmp(changedArea, L"ImmersiveColorSet") == 0)
     {
         if (scheduleDarkModeRefresh())
         {
