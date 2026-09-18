@@ -419,7 +419,7 @@ bool StyledWindow::scheduleDarkModeRefresh()
         return false;
     }
     d->darkModeSettingGuard_ = true;
-    QTimer::singleShot(kDarkModeRefreshDelayMs, [this]() {
+    QTimer::singleShot(kDarkModeRefreshDelayMs, this, [this]() {
         forceDarkMode(HWND(internalWinId()));
         d->darkModeSettingGuard_ = false;
     });
@@ -1089,7 +1089,7 @@ bool StyledWindow::onPowerBroadcast(tagMSG* msg, Q_RESULT_TYPE result)
     {
         qDebug() << ("PBT_APMRESUMEAUTOMATIC  received\n");
         // DPI LOST AFTER RESUME FROM SLEEP
-        QTimer::singleShot(100, [this]() {
+        QTimer::singleShot(100, this, [this]() {
             RECT rect;
             const auto hwnd = reinterpret_cast<HWND>(this->winId());
             GetWindowRect(hwnd, &rect);
@@ -1167,7 +1167,11 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
 void StyledWindow::platformInit()
 {
-    QTimer::singleShot(0, [this]() {
+    // Deferred to the next event-loop turn, so it has to be bound to `this`:
+    // a window destroyed before then would otherwise have the lambda write
+    // through a freed d. Cancelled, proxyWindow_ simply stays null, which the
+    // destructor handles.
+    QTimer::singleShot(0, this, [this]() {
         d->proxyWindow_ = new QWindow();
         d->proxyWindow_->setBaseSize({0, 0});
         d->sysMenu_ = GetSystemMenu((HWND)d->proxyWindow_->winId(), FALSE);
