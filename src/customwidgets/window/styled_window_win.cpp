@@ -1146,6 +1146,259 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     }
     return false;
 }
+
+// ---------------------------------------------------------------------------
+// Platform hooks
+// ---------------------------------------------------------------------------
+
+void StyledWindow::platformInit()
+{
+    QTimer::singleShot(0, [this]() {
+        d->proxyWindow_ = new QWindow();
+        d->proxyWindow_->setBaseSize({0, 0});
+        d->sysMenu_ = GetSystemMenu((HWND)d->proxyWindow_->winId(), FALSE);
+    });
+    d->titleBar_ = Q_NULLPTR;
+    setResizeableAreaWidth(8);
+
+    QObject::connect(
+        qApp, &QApplication::focusChanged, this,
+        [this](QWidget*, QWidget* now) { rememberFocusedWidget(now); });
+}
+
+void StyledWindow::platformShutdown()
+{
+    if (d->suspendResumeNotification_)
+    {
+        UnregisterSuspendResumeNotification(d->suspendResumeNotification_);
+    }
+    if (d->backgroundBrush_)
+    {
+        DeleteObject(d->backgroundBrush_);
+    }
+    delete d->proxyWindow_;
+}
+
+void StyledWindow::platformApplyWindowFlags(Qt::WindowFlags& flags)
+{
+    flags |= Qt::FramelessWindowHint;
+}
+
+void StyledWindow::platformStyleTitleBar()
+{
+#    ifdef ADS_EXPERIMENTAL_ACRYLIC_WINDOW
+    d->windowHint_->setProperty("class", "window-title-bar-acrylic");
+#    endif
+}
+
+void StyledWindow::platformAddTitleBarLogo(QHBoxLayout* leftLayout)
+{
+    if (!d->logo_)
+    {
+        auto lumeIcon = QIcon(":/lume_icon.svg");
+        setIcon(lumeIcon);
+        leftLayout->addWidget(d->logo_, 0, Qt::AlignLeft);
+        d->menuHelper_ = new WidgetEventHelper(this);
+        d->menuHelper_->SetWidget(d->logo_);
+    }
+}
+
+void StyledWindow::platformAddTitleBarDivider(QHBoxLayout* rightLayout)
+{
+    d->divider_ = new QWidget(this);
+    d->divider_->setProperty("class", "toolbar-divider");
+    rightLayout->addWidget(d->divider_, 0, Qt::AlignRight | Qt::AlignVCenter);
+    d->divider_->setVisible(false);
+}
+
+void StyledWindow::platformFinishTitleBar()
+{
+    if (W_10)
+    {
+        if (!this->isMaximized())
+        {
+            this->setContentsMargins(QMargins(FRAME_THICKNESS, FRAME_THICKNESS,
+                                              FRAME_THICKNESS, FRAME_THICKNESS));
+        }
+        this->setProperty("class", "window-10-main");
+    }
+
+    setTitleBar(d->windowHint_);
+    addIgnoreWidget(d->leftLayoutWidget_);
+    addIgnoreWidget(d->rightLayoutWidget_);
+    addIgnoreWidget(d->titleLabel_);
+}
+
+void StyledWindow::platformFilterToolBarEvent(QToolBar* toolBar, QEvent* event)
+{
+    if (event->type() == QEvent::Resize)
+    {
+        updateWindowFrameAttributes();
+
+        const auto titleBarHeight =
+            static_cast<int>(toolBar->size().height() * d->displayScale_ + 0.5f);
+        MARGINS m = {0, 0, titleBarHeight, 0};
+        DwmExtendFrameIntoClientArea((HWND)this->effectiveWinId(), &m);
+    }
+}
+
+void StyledWindow::platformHandleEvent(QEvent* event)
+{
+    if (event->type() == QEvent::Paint)
+    {
+        d->pendingStateResizePaint_ = false;
+
+        if (!d->cloakPending_)
+        {
+            return;
+        }
+
+        if (!d->uncloakQueued_)
+        {
+            d->uncloakQueued_ = true;
+            QMetaObject::invokeMethod(
+                this,
+                [this]() {
+                    d->uncloakQueued_ = false;
+                    if (!d->cloakPending_ || !isVisible() || isMinimized())
+                    {
+                        return;
+                    }
+
+                    d->cloakPending_ = false;
+                    setWindowCloaked(false);
+                },
+                Qt::QueuedConnection);
+        }
+    }
+    if (event->type() == QEvent::ScreenChangeInternal)
+    {
+        RECT rect;
+        const auto hwnd = reinterpret_cast<HWND>(this->effectiveWinId());
+        GetWindowRect(hwnd, &rect);
+        const auto dpr = nativeWindowDpr(hwnd, this->devicePixelRatioF());
+        if (dpr != d->displayScale_)
+        {
+            updateWindowDpr(dpr,
+                            QRect(rect.left, rect.top, rect.right - rect.left,
+                                  rect.bottom - rect.top),
+                            this->effectiveWinId());
+        }
+    }
+    if (event->type() == QEvent::Resize)
+    {
+        syncWindowHintGeometry();
+    }
+    if (event->type() == QEvent::Show)
+    {
+        if (!d->initResize_)
+        {
+            d->initResize_ = true;
+
+            RECT rect;
+            const auto hwnd = reinterpret_cast<HWND>(this->effectiveWinId());
+            GetWindowRect(hwnd, &rect);
+            updateWindowDpr(nativeWindowDpr(hwnd, this->devicePixelRatioF()),
+                            QRect(rect.left, rect.top, rect.right - rect.left,
+                                  rect.bottom - rect.top),
+                            this->effectiveWinId());
+
+            setResizeable(d->resizeable_);
+            constructHintButtons();
+            // Register for receiving WM_POWERBROADCAST event
+            d->suspendResumeNotification_ = RegisterSuspendResumeNotification(
+                reinterpret_cast<HANDLE>(this->winId()),
+                DEVICE_NOTIFY_WINDOW_HANDLE);
+
+            auto style = GetClassLong((HWND)this->winId(), GCL_STYLE);
+            style &= ~(CS_VREDRAW | CS_HREDRAW);
+            SetClassLongPtr((HWND)this->winId(), GCL_STYLE, style);
+
+            initWindowBackground(false);
+            forceDarkMode(HWND(effectiveWinId()));
+
+            updateWindowFrameAttributes();
+            d->cloakPending_ = true;
+            d->uncloakQueued_ = false;
+            setWindowCloaked(true);
+            update();
+            if (auto* window = windowHandle())
+            {
+                window->requestUpdate();
+            }
+        }
+        syncWindowHintGeometry();
+    }
+
+    if (event->type() == QEvent::WindowStateChange)
+    {
+        if (isVisible() && !isMinimized())
+        {
+            updateWindowFrameAttributes();
+        }
+        syncWindowHintGeometry();
+        if (d->maximize_)
+        {
+            d->maximize_->setIcon(QIcon(maximizeIconPath(isMaximized()))
+                                      .pixmap(kHintIconSize, kHintIconSize));
+        }
+    }
+    if (event->type() == QEvent::WindowActivate)
+    {
+        queueRestoreClientFocus();
+    }
+}
+
+void StyledWindow::platformSetupMenuBar(QMenuBar* menuBar)
+{
+    if (!d->leftLayoutWidget_)
+    {
+        return;
+    }
+    auto layout = qobject_cast<QHBoxLayout*>(d->leftLayoutWidget_->layout());
+    if (menuBar && layout)
+    {
+        d->menuBar_ = menuBar;
+        d->menuBar_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Maximum);
+        d->menuBar_->setAttribute(Qt::WA_NoMousePropagation);
+        d->menuBar_->setMouseTracking(false);
+        layout->addWidget(d->menuBar_, 0, Qt::AlignLeft);
+        this->setMenuBar(nullptr);
+    }
+}
+
+QMenuBar* StyledWindow::platformMenuBar()
+{
+    return d->menuBar_;
+}
+
+void StyledWindow::platformSetIcon(const QIcon& icon)
+{
+    d->logo_ = new QPushButton(icon, "", this);
+    d->logo_->setFixedWidth(21);
+    d->logo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    d->logo_->setFocusPolicy(Qt::NoFocus);
+    d->logo_->setProperty("class", "menuWindowBt");
+
+    QObject::connect(d->logo_, &QAbstractButton::released, this,
+                     [this]() { showSystemMenu(this, systemMenuAnchor()); });
+}
+
+void StyledWindow::platformSetSubToolbar(QToolBar* toolbar)
+{
+    auto layout = qobject_cast<QHBoxLayout*>(d->rightLayoutWidget_->layout());
+    if (layout && d->divider_)
+    {
+        auto in = layout->indexOf(d->divider_);
+        layout->insertWidget(in - 1, toolbar, 0,
+                             Qt::AlignRight | Qt::AlignVCenter);
+        if (!toolbar->children().empty())
+        {
+            d->divider_->setVisible(true);
+        };
+    }
+}
+
 }  // namespace ads
 
 #endif  // Q_OS_WIN

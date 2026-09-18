@@ -8,10 +8,14 @@
 
 class QMenu;
 class QPushButton;
+class QHBoxLayout;
 class WidgetEventHelper;
 
 #ifdef Q_OS_WIN
+// The structs behind the MSG and HWND typedefs. Forward-declaring them keeps
+// <windows.h> out of this header, which non-Windows-aware consumers include.
 struct tagMSG;
+struct HWND__;
 #endif
 
 namespace ads
@@ -50,6 +54,24 @@ protected:
 private:
     void init();
     void initWindowTitle();
+
+    // Platform hooks. Everything OS-specific lives behind these; this class
+    // itself only deals in Qt. Exactly one implementation is compiled, chosen
+    // by the build: styled_window_win.cpp, styled_window_mac.cpp or
+    // styled_window_default.cpp.
+    void platformInit();
+    void platformShutdown();
+    void platformApplyWindowFlags(Qt::WindowFlags& flags);
+    void platformStyleTitleBar();
+    void platformAddTitleBarLogo(QHBoxLayout* leftLayout);
+    void platformAddTitleBarDivider(QHBoxLayout* rightLayout);
+    void platformFinishTitleBar();
+    void platformFilterToolBarEvent(QToolBar* toolBar, QEvent* event);
+    void platformHandleEvent(QEvent* event);
+    void platformSetupMenuBar(QMenuBar* menuBar);
+    QMenuBar* platformMenuBar();
+    void platformSetIcon(const QIcon& icon);
+    void platformSetSubToolbar(QToolBar* toolbar);
 #ifdef Q_OS_WIN
     void showSystemMenu(QWidget* widget, const QPoint& pos);
 public slots:
@@ -105,7 +127,7 @@ protected:
     QMenu* createPopupMenu() override;
 
     void forceRedraw();
-    void redrawWindowNow(HWND hwnd, bool eraseBackground = false);
+    void redrawWindowNow(HWND__* hwnd, bool eraseBackground = false);
     bool scheduleDarkModeRefresh();
     QPoint systemMenuAnchor() const;
     void updateWindowDpr(float dpr, QRect rect, WId wid);

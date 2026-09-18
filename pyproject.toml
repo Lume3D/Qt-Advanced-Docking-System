@@ -78,6 +78,8 @@ sources = [
 	"src/ads_globals.cpp",
 	"src/customwidgets/window/styled_window.cpp",
 	"src/customwidgets/window/styled_window_win.cpp",
+	"src/customwidgets/window/styled_window_mac.cpp",
+	"src/customwidgets/window/styled_window_default.cpp",
 	"src/customwidgets/window/widget_event_helper.cpp",
 	"src/linux/FloatingWidgetTitleBar.cpp; platform_system == 'Linux'",
 ]
