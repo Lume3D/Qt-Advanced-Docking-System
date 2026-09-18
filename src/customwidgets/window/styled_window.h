@@ -69,6 +69,9 @@ protected:
     QMenu* createPopupMenu() override;
 
     void forceRedraw();
+    void redrawWindowNow(HWND hwnd, bool eraseBackground = false);
+    bool scheduleDarkModeRefresh();
+    QPoint systemMenuAnchor() const;
     void updateWindowDpr(float dpr, QRect rect, WId wid);
     void syncWindowHintGeometry();
     bool isTitleBarChrome(const QWidget* widget) const;

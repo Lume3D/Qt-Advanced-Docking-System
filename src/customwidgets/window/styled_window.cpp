@@ -4,6 +4,8 @@
 #include <QLayout>
 #include <QPointer>
 
+#include <array>
+
 #include "utils.h"
 
 #ifdef Q_OS_WIN
@@ -32,6 +34,15 @@ float nativeWindowDpr(HWND hwnd, float fallback)
 
     return static_cast<float>(dpi) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
 }
+// The system reports a theme change before it has finished applying it;
+// re-asserting dark mode after a short delay is what makes it stick.
+constexpr int kDarkModeRefreshDelayMs = 100;
+
+// Offsets of the system menu from the logo button's bottom-left corner,
+// in device-independent pixels.
+constexpr int kSystemMenuOffsetX = 4;
+constexpr int kSystemMenuOffsetY = 12;
+
 HRESULT forceDarkMode(HWND hwnd)
 {
     BOOL value = TRUE;
@@ -71,6 +82,41 @@ struct StyledWindow::StyledWindowPrivate
     WidgetEventHelper* minimizeHelper_{nullptr};
     WidgetEventHelper* closeHelper_{nullptr};
     WidgetEventHelper* menuHelper_{nullptr};
+
+    // The title-bar chrome buttons paired with the hit-test code identifying
+    // each one. Several native messages are fanned out to all four in this
+    // order, and the WM_NC*BUTTON* messages arrive carrying a hit-test code
+    // that has to be mapped back to the button owning it.
+    struct ChromeButton
+    {
+        WidgetEventHelper* helper;
+        LONG hitTest;
+    };
+
+    std::array<ChromeButton, 4> chromeButtons() const
+    {
+        return {{{menuHelper_, HTSYSMENU},
+                 {minimizeHelper_, HTMINBUTTON},
+                 {maximizeHelper_, HTMAXBUTTON},
+                 {closeHelper_, HTCLOSE}}};
+    }
+
+    bool chromeHelpersReady() const
+    {
+        return menuHelper_ && minimizeHelper_ && maximizeHelper_ && closeHelper_;
+    }
+
+    WidgetEventHelper* chromeHelperFor(WPARAM hitTest) const
+    {
+        for (const auto& button : chromeButtons())
+        {
+            if (button.hitTest == static_cast<LONG>(hitTest))
+            {
+                return button.helper;
+            }
+        }
+        return nullptr;
+    }
     float displayScale_{1.f};
 
     bool initResize_{false};
@@ -468,20 +514,8 @@ void StyledWindow::setIcon(QIcon icon)
     d->logo_->setFocusPolicy(Qt::NoFocus);
     d->logo_->setProperty("class", "menuWindowBt");
 
-    QObject::connect(d->logo_, &QAbstractButton::released, this, [this]() {
-        RECT rect;
-        const auto dpr = this->devicePixelRatioF();
-        GetWindowRect(reinterpret_cast<HWND>(winId()), &rect);
-        QPoint point(rect.left, rect.top);
-        if (d->logo_)
-        {
-            const auto geometry = d->logo_->geometry().bottomLeft();
-            point = QPoint(point.x() + geometry.x() + (dpr * 4),
-                           point.y() + geometry.y() + (dpr * 12));
-        }
-
-        showSystemMenu(this, point);
-    });
+    QObject::connect(d->logo_, &QAbstractButton::released, this,
+                     [this]() { showSystemMenu(this, systemMenuAnchor()); });
 #endif
 }
 
@@ -660,14 +694,7 @@ void StyledWindow::constructHintButtons()
                         }
 
                         d->pendingStateResizePaint_ = true;
-                        RedrawWindow(hwnd, nullptr, nullptr,
-                                     RDW_INVALIDATE | RDW_NOERASE
-                                         | RDW_ALLCHILDREN);
-                        update();
-                        if (auto* window = windowHandle())
-                        {
-                            window->requestUpdate();
-                        }
+                        redrawWindowNow(hwnd);
 
                         const auto command = this->isMaximized() ? SC_RESTORE :
                                                                    SC_MAXIMIZE;
@@ -880,6 +907,57 @@ void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
     }
 }
 
+// Repaints the window and all children immediately. RDW_NOERASE is the
+// default here because erasing the background first is what produces the
+// white flash during maximize/restore.
+void StyledWindow::redrawWindowNow(HWND hwnd, bool eraseBackground)
+{
+    UINT flags = RDW_INVALIDATE | RDW_ALLCHILDREN;
+    if (!eraseBackground)
+    {
+        flags |= RDW_NOERASE;
+    }
+    RedrawWindow(hwnd, nullptr, nullptr, flags);
+    update();
+    if (auto* window = windowHandle())
+    {
+        window->requestUpdate();
+    }
+}
+
+// Returns false when a refresh is already pending, so the caller can leave
+// the message for DefWindowProc instead of swallowing it.
+bool StyledWindow::scheduleDarkModeRefresh()
+{
+    if (d->darkModeSettingGuard_)
+    {
+        return false;
+    }
+    d->darkModeSettingGuard_ = true;
+    QTimer::singleShot(kDarkModeRefreshDelayMs, [this]() {
+        forceDarkMode(HWND(internalWinId()));
+        d->darkModeSettingGuard_ = false;
+    });
+    return true;
+}
+
+// Anchors the system menu under the logo button, falling back to the
+// window's top-left corner when there is no logo.
+QPoint StyledWindow::systemMenuAnchor() const
+{
+    RECT rect;
+    GetWindowRect(reinterpret_cast<HWND>(winId()), &rect);
+    QPoint point(rect.left, rect.top);
+    if (d->logo_)
+    {
+        const auto dpr = this->devicePixelRatioF();
+        const auto geometry = d->logo_->geometry().bottomLeft();
+        point = QPoint(point.x() + geometry.x() + (dpr * kSystemMenuOffsetX),
+                       point.y() + geometry.y() + (dpr * kSystemMenuOffsetY));
+    }
+    return point;
+}
+
 void StyledWindow::forceRedraw()
 {
     auto* window = windowHandle();
@@ -1065,19 +1143,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     {
         if (msg->wParam == VK_SPACE)
         {
-            RECT rect;
-            const auto dpr = this->devicePixelRatioF();
-
-            GetWindowRect(reinterpret_cast<HWND>(winId()), &rect);
-            QPoint point(rect.left, rect.top);
-            if (d->logo_)
-            {
-                const auto geometry = d->logo_->geometry().bottomLeft();
-                point = QPoint(point.x() + geometry.x() + (dpr * 4),
-                               point.y() + geometry.y() + (dpr * 12));
-            }
-
-            showSystemMenu(this, point);
+            showSystemMenu(this, systemMenuAnchor());
         }
         break;
     }
@@ -1117,24 +1183,12 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     case WM_NCHITTEST:
     {
         *result = 0;
-        if (d->menuHelper_)
+        for (const auto& button : d->chromeButtons())
         {
-            d->menuHelper_->HandleMouseMove();
-        }
-
-        if (d->minimizeHelper_)
-        {
-            d->minimizeHelper_->HandleMouseMove();
-        }
-
-        if (d->maximizeHelper_)
-        {
-            d->maximizeHelper_->HandleMouseMove();
-        }
-
-        if (d->closeHelper_)
-        {
-            d->closeHelper_->HandleMouseMove();
+            if (button.helper)
+            {
+                button.helper->HandleMouseMove();
+            }
         }
 
         const LONG borderWidth = d->borderWidth_;
@@ -1221,39 +1275,13 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         }
         else
         {
-            if (d->menuHelper_ && d->menuHelper_->Widget())
+            for (const auto& button : d->chromeButtons())
             {
-                if (d->menuHelper_->Widget() == child)
+                if (button.helper && button.helper->Widget()
+                    && button.helper->Widget() == child)
                 {
-                    d->menuHelper_->SetWidgetRectFlag(true);
-                    *result = HTSYSMENU;
-                    return true;
-                }
-            }
-            if (d->minimizeHelper_ && d->minimizeHelper_->Widget())
-            {
-                if (d->minimizeHelper_->Widget() == child)
-                {
-                    d->minimizeHelper_->SetWidgetRectFlag(true);
-                    *result = HTMINBUTTON;
-                    return true;
-                }
-            }
-            if (d->maximizeHelper_ && d->maximizeHelper_->Widget())
-            {
-                if (d->maximizeHelper_->Widget() == child)
-                {
-                    d->maximizeHelper_->SetWidgetRectFlag(true);
-                    *result = HTMAXBUTTON;
-                    return true;
-                }
-            }
-            if (d->closeHelper_ && d->closeHelper_->Widget())
-            {
-                if (d->closeHelper_->Widget() == child)
-                {
-                    d->closeHelper_->SetWidgetRectFlag(true);
-                    *result = HTCLOSE;
+                    button.helper->SetWidgetRectFlag(true);
+                    *result = button.hitTest;
                     return true;
                 }
             }
@@ -1304,13 +1332,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                  || (msg->wParam == SIZE_RESTORED && !wasJustMinimized))
         {
             d->pendingStateResizePaint_ = true;
-            RedrawWindow(msg->hwnd, nullptr, nullptr,
-                         RDW_INVALIDATE | RDW_NOERASE | RDW_ALLCHILDREN);
-            update();
-            if (auto* window = windowHandle())
-            {
-                window->requestUpdate();
-            }
+            redrawWindowNow(msg->hwnd);
         }
         return false;
     }
@@ -1351,35 +1373,33 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     // Handle Mouse Event from native Q_OS_WIN and serve the gesture to Qt
     case WM_LBUTTONUP:
     {
-        if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
-              && d->menuHelper_))
+        if (!d->chromeHelpersReady())
         {
             return false;
         }
 
-        d->menuHelper_->HandleMouseRelease(result, false);
-        d->minimizeHelper_->HandleMouseRelease(result, false);
-        d->maximizeHelper_->HandleMouseRelease(result, false);
-        d->closeHelper_->HandleMouseRelease(result, false);
+        for (const auto& button : d->chromeButtons())
+        {
+            button.helper->HandleMouseRelease(result, false);
+        }
         return false;
     }
 
     case WM_NCMOUSELEAVE:
     {
-        if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
-              && d->menuHelper_))
+        if (!d->chromeHelpersReady())
         {
             return false;
         }
 
-        d->menuHelper_->SetWidgetRectFlag(false);
-        d->minimizeHelper_->SetWidgetRectFlag(false);
-        d->maximizeHelper_->SetWidgetRectFlag(false);
-        d->closeHelper_->SetWidgetRectFlag(false);
-        d->menuHelper_->HandleMouseMove();
-        d->minimizeHelper_->HandleMouseMove();
-        d->maximizeHelper_->HandleMouseMove();
-        d->closeHelper_->HandleMouseMove();
+        for (const auto& button : d->chromeButtons())
+        {
+            button.helper->SetWidgetRectFlag(false);
+        }
+        for (const auto& button : d->chromeButtons())
+        {
+            button.helper->HandleMouseMove();
+        }
 
         break;
     }
@@ -1402,37 +1422,24 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_MOUSEMOVE:
     {
-        if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
-              && d->menuHelper_))
+        if (!d->chromeHelpersReady())
         {
             return false;
         }
         *result = 0;
-        if (d->menuHelper_->IsFirstMove())
+        for (const auto& button : d->chromeButtons())
         {
-            d->menuHelper_->SetFirstMove(false);
-            d->menuHelper_->SendMouseRelease(false);
-        }
-        if (d->minimizeHelper_->IsFirstMove())
-        {
-            d->minimizeHelper_->SetFirstMove(false);
-            d->minimizeHelper_->SendMouseRelease(false);
-        }
-        if (d->maximizeHelper_->IsFirstMove())
-        {
-            d->maximizeHelper_->SetFirstMove(false);
-            d->maximizeHelper_->SendMouseRelease(false);
-        }
-        if (d->closeHelper_->IsFirstMove())
-        {
-            d->closeHelper_->SetFirstMove(false);
-            d->closeHelper_->SendMouseRelease(false);
+            if (button.helper->IsFirstMove())
+            {
+                button.helper->SetFirstMove(false);
+                button.helper->SendMouseRelease(false);
+            }
         }
 
-        d->menuHelper_->HandleMouseMove();
-        d->minimizeHelper_->HandleMouseMove();
-        d->maximizeHelper_->HandleMouseMove();
-        d->closeHelper_->HandleMouseMove();
+        for (const auto& button : d->chromeButtons())
+        {
+            button.helper->HandleMouseMove();
+        }
 
         if (!d->titleBar_)
             return false;
@@ -1449,32 +1456,11 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                 *result = HTCAPTION;
                 return true;
             }
-            if (d->menuHelper_->Widget())
+            for (const auto& button : d->chromeButtons())
             {
-                if (d->menuHelper_->Widget() == child)
+                if (button.helper->Widget() && button.helper->Widget() == child)
                 {
-                    d->menuHelper_->SetWidgetRectFlag(true);
-                }
-            }
-            if (d->minimizeHelper_->Widget())
-            {
-                if (d->minimizeHelper_->Widget() == child)
-                {
-                    d->minimizeHelper_->SetWidgetRectFlag(true);
-                }
-            }
-            if (d->maximizeHelper_->Widget())
-            {
-                if (d->maximizeHelper_->Widget() == child)
-                {
-                    d->maximizeHelper_->SetWidgetRectFlag(true);
-                }
-            }
-            if (d->closeHelper_->Widget())
-            {
-                if (d->closeHelper_->Widget() == child)
-                {
-                    d->closeHelper_->SetWidgetRectFlag(true);
+                    button.helper->SetWidgetRectFlag(true);
                 }
             }
         }
@@ -1483,33 +1469,17 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_NCLBUTTONDOWN:
     {
-        if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
-              && d->menuHelper_))
+        if (!d->chromeHelpersReady())
         {
             return false;
         }
-        d->menuHelper_->HandleMouseMove();
-        d->minimizeHelper_->HandleMouseMove();
-        d->maximizeHelper_->HandleMouseMove();
-        d->closeHelper_->HandleMouseMove();
-        if (msg->wParam == HTSYSMENU)
+        for (const auto& button : d->chromeButtons())
         {
-            if (d->menuHelper_->HandleMousePress(result))
-                return true;
+            button.helper->HandleMouseMove();
         }
-        else if (msg->wParam == HTMINBUTTON)
+        if (auto* helper = d->chromeHelperFor(msg->wParam))
         {
-            if (d->minimizeHelper_->HandleMousePress(result))
-                return true;
-        }
-        else if (msg->wParam == HTMAXBUTTON)
-        {
-            if (d->maximizeHelper_->HandleMousePress(result))
-                return true;
-        }
-        else if (msg->wParam == HTCLOSE)
-        {
-            if (d->closeHelper_->HandleMousePress(result))
+            if (helper->HandleMousePress(result))
                 return true;
         }
         return false;
@@ -1517,36 +1487,20 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_NCLBUTTONUP:
     {
-        if (!(d->minimizeHelper_ && d->maximizeHelper_ && d->closeHelper_
-              && d->menuHelper_))
+        if (!d->chromeHelpersReady())
         {
             return false;
         }
-        if (msg->wParam == HTSYSMENU)
+        if (auto* helper = d->chromeHelperFor(msg->wParam))
         {
-            if (d->menuHelper_->HandleMouseRelease(result))
-                return true;
-        }
-        else if (msg->wParam == HTMINBUTTON)
-        {
-            if (d->minimizeHelper_->HandleMouseRelease(result))
-                return true;
-        }
-        else if (msg->wParam == HTMAXBUTTON)
-        {
-            if (d->maximizeHelper_->HandleMouseRelease(result))
-                return true;
-        }
-        else if (msg->wParam == HTCLOSE)
-        {
-            if (d->closeHelper_->HandleMouseRelease(result))
+            if (helper->HandleMouseRelease(result))
                 return true;
         }
 
-        d->menuHelper_->ReleaseFlag();
-        d->minimizeHelper_->ReleaseFlag();
-        d->maximizeHelper_->ReleaseFlag();
-        d->closeHelper_->ReleaseFlag();
+        for (const auto& button : d->chromeButtons())
+        {
+            button.helper->ReleaseFlag();
+        }
         return false;
     }
 
@@ -1555,13 +1509,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (msg->wParam == HTCAPTION)
         {
             d->pendingStateResizePaint_ = true;
-            RedrawWindow(msg->hwnd, nullptr, nullptr,
-                         RDW_INVALIDATE | RDW_NOERASE | RDW_ALLCHILDREN);
-            update();
-            if (auto* window = windowHandle())
-            {
-                window->requestUpdate();
-            }
+            redrawWindowNow(msg->hwnd);
 
             *result =
                 DefWindowProcW(msg->hwnd, msg->message, msg->wParam, msg->lParam);
@@ -1579,13 +1527,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
     case WM_EXITSIZEMOVE:
     {
         d->inSizeMove_ = false;
-        RedrawWindow(msg->hwnd, nullptr, nullptr,
-                     RDW_INVALIDATE | RDW_ALLCHILDREN);
-        update();
-        if (auto* window = windowHandle())
-        {
-            window->requestUpdate();
-        }
+        redrawWindowNow(msg->hwnd, /*eraseBackground=*/true);
         break;
     }
 
@@ -1626,13 +1568,8 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     case WM_THEMECHANGED:
     {
-        if (!d->darkModeSettingGuard_)
+        if (scheduleDarkModeRefresh())
         {
-            d->darkModeSettingGuard_ = true;
-            QTimer::singleShot(100, [this]() {
-                forceDarkMode(HWND(internalWinId()));
-                d->darkModeSettingGuard_ = false;
-            });
             *result = 0;
             return true;
         }
@@ -1644,13 +1581,8 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (wcscmp(reinterpret_cast<LPCWSTR>(msg->lParam), L"ImmersiveColorSet")
             == 0)
         {
-            if (!d->darkModeSettingGuard_)
+            if (scheduleDarkModeRefresh())
             {
-                d->darkModeSettingGuard_ = true;
-                QTimer::singleShot(100, [this]() {
-                    forceDarkMode(HWND(internalWinId()));
-                    d->darkModeSettingGuard_ = false;
-                });
                 *result = 0;
                 return true;
             }
