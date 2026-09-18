@@ -84,6 +84,22 @@ private:
 	int m_CurrentIndex = -1;
 	QWidget* m_CurrentWidget = nullptr;
 
+	/**
+	 * Detaches a widget without turning an existing native window into a top-level window.
+	 */
+	void detachWidget(QWidget* Widget)
+	{
+		CDockAreaWidget* DockArea = qobject_cast<CDockAreaWidget*>(m_ParentLayout->parentWidget());
+		if (Widget->internalWinId() && DockArea && DockArea->dockManager())
+		{
+			Widget->setParent(DockArea->dockManager());
+		}
+		else
+		{
+			Widget->setParent(nullptr);
+		}
+	}
+
 public:
 	/**
 	 * Creates an instance with the given parent layout
@@ -108,7 +124,7 @@ public:
 	 */
 	void insertWidget(int index, QWidget* Widget)
 	{
-		Widget->setParent(nullptr);
+		detachWidget(Widget);
 		if (index < 0)
 		{
 			index = m_Widgets.count();
@@ -137,7 +153,7 @@ public:
 			auto LayoutItem = m_ParentLayout->takeAt(1);
 			if (LayoutItem)
 			{
-				LayoutItem->widget()->setParent(nullptr);
+				detachWidget(LayoutItem->widget());
 			}
 			delete LayoutItem;
 			m_CurrentWidget = nullptr;
@@ -184,7 +200,7 @@ public:
 			auto LayoutItem = m_ParentLayout->takeAt(1);
 			if (LayoutItem)
 			{
-				LayoutItem->widget()->setParent(nullptr);
+				detachWidget(LayoutItem->widget());
 			}
 			delete LayoutItem;
 		}
@@ -890,7 +906,12 @@ void CDockAreaWidget::updateTitleBarVisibility()
     if (!CDockManager::testConfigFlag(CDockManager::AlwaysShowTabs))
     {
         bool Hidden = false;
-        if (!IsAutoHide)  // Titlebar must always be visible when auto hidden so it can be dragged
+        // Wayland: the title bar of a floating container must always stay
+        // visible because it is the only handle that can drag the dock
+        // widget back into a dock container. The window decoration is owned
+        // by the compositor and only moves the window
+        bool IsWaylandFloating = internal::isWayland() && Container->isFloating();
+        if (!IsAutoHide && !IsWaylandFloating)  // Titlebar must always be visible when auto hidden so it can be dragged
         {
             if (Container->isFloating() || CDockManager::testConfigFlag(CDockManager::HideSingleCentralWidgetTitleBar))
             {
