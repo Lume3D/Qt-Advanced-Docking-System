@@ -445,7 +445,15 @@ QPoint StyledWindow::systemMenuAnchor() const
 
 void StyledWindow::forceRedraw()
 {
+    // Reached from a delayed timer after a display change, by which point the
+    // platform window may be gone -- Qt recreates windows as screens come and
+    // go. Every other windowHandle() call in this file is guarded; so is this.
     auto* window = windowHandle();
+    if (!window)
+    {
+        return;
+    }
+
     auto* screen = QApplication::screenAt(window->geometry().center());
     if (!screen)
     {
@@ -757,8 +765,14 @@ bool StyledWindow::onNcHitTest(tagMSG* msg, Q_RESULT_TYPE result)
 bool StyledWindow::onDisplayChange(tagMSG* msg, Q_RESULT_TYPE result)
 {
     qDebug() << ("DISPLAYS Changed\n");
-    // DPI LOST AFTER ADD OR REMOVE DISPLAY
-    QTimer::singleShot(1000, [this]() { forceRedraw(); });
+    // DPI LOST AFTER ADD OR REMOVE DISPLAY.
+    //
+    // `this` is the context object, not merely a capture: the timer has to be
+    // cancelled if the window dies first. This message is broadcast to every
+    // top-level window, and floating dock containers are StyledWindows that
+    // deleteLater() themselves, so a second is ample time for one to go away
+    // while its timer is still pending.
+    QTimer::singleShot(1000, this, [this]() { forceRedraw(); });
     return false;
 }
 
