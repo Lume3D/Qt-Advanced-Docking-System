@@ -47,7 +47,6 @@ struct StyledWindow::StyledWindowPrivate
 {
     QWidget* leftLayoutWidget_{nullptr};
     QWidget* rightLayoutWidget_{nullptr};
-    QScreen* currentScreen_{nullptr};
     QPushButton* maximize_{nullptr};
     QPushButton* minimize_{nullptr};
     QPushButton* close_{nullptr};
@@ -77,7 +76,7 @@ struct StyledWindow::StyledWindowPrivate
     bool initResize_{false};
 
 #ifdef Q_OS_WIN
-    QWindow* proxyWindow_;
+    QWindow* proxyWindow_{nullptr};
     HMENU sysMenu_{nullptr};
     HBRUSH backgroundBrush_{nullptr};
     HPOWERNOTIFY suspendResumeNotification_{nullptr};
@@ -130,7 +129,6 @@ void StyledWindow::init()
         d->sysMenu_ = GetSystemMenu((HWND)d->proxyWindow_->winId(), FALSE);
     });
     d->titleBar_ = Q_NULLPTR;
-    d->borderWidth_ = 5;
     setResizeableAreaWidth(8);
 
     QObject::connect(
@@ -330,7 +328,6 @@ void StyledWindow::initWindowTitle()
     addIgnoreWidget(d->rightLayoutWidget_);
     addIgnoreWidget(d->titleLabel_);
 #endif
-    // setFocusProxy(d->windowHint_);
 }
 
 bool StyledWindow::event(QEvent* event)
@@ -1212,9 +1209,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (!d->titleBar_)
             return false;
 
-        QPoint pos;
-        // pos = d->titleBar_->mapFromGlobal(QPoint(x / dpr, y / dpr));
-        pos = d->titleBar_->mapFromGlobal(QCursor::pos());
+        const QPoint pos = d->titleBar_->mapFromGlobal(QCursor::pos());
         if (isOutOfWidget(d->titleBar_))
             return false;
 
@@ -1413,8 +1408,6 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
             return false;
         }
         *result = 0;
-        long x = GET_X_LPARAM(msg->lParam);
-        long y = GET_Y_LPARAM(msg->lParam);
         if (d->menuHelper_->IsFirstMove())
         {
             d->menuHelper_->SetFirstMove(false);
@@ -1444,9 +1437,7 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
         if (!d->titleBar_)
             return false;
 
-        QPoint pos;
-        // pos = d->titleBar_->mapFromGlobal(QPoint(x / dpr, y / dpr));
-        pos = d->titleBar_->mapFromGlobal(QCursor::pos());
+        const QPoint pos = d->titleBar_->mapFromGlobal(QCursor::pos());
         if (isOutOfWidget(d->titleBar_))
             return false;
 
@@ -1718,10 +1709,11 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
             break;
         }
         }
+        break;
     }
     default: break;
     }
     return false;
 }
-#endif
+#endif  // Q_OS_WIN
 }  // namespace ads

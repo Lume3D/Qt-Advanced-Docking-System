@@ -1,16 +1,17 @@
-#ifndef ADS_EVENT_UTILS
-#define ADS_EVENT_UTILS
+#ifndef ADS_UTILS_H
+#define ADS_UTILS_H
 
-#include <QLabel>
-#include <QToolBar>
-#include <QMenuBar>
-#include <QPushButton>
-#include <QEvent>
-#include <QVBoxLayout>
 #include <QApplication>
+#include <QEvent>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QList>
+#include <QMenuBar>
 #include <QMouseEvent>
-#include <QTimer>
-#include <QWindow>
+#include <QPushButton>
 #include <QScreen>
-#endif
+#include <QTimer>
+#include <QToolBar>
+#include <QWindow>
+
+#endif  // ADS_UTILS_H

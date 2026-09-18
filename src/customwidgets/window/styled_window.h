@@ -1,5 +1,5 @@
-#ifndef ADS_FRAME_LESS_H
-#define ADS_FRAME_LESS_H
+#ifndef ADS_STYLED_WINDOW_H
+#define ADS_STYLED_WINDOW_H
 
 #include <QMainWindow>
 
@@ -7,11 +7,6 @@
 #include "type_versions.h"
 
 class QMenu;
-class QLabel;
-class QPushButton;
-class QWidget;
-class QHBoxLayout;
-class WidgetEventHelper;
 
 namespace ads
 {
@@ -32,7 +27,7 @@ class ADS_EXPORT StyledWindow : public QMainWindow, public IStyledWindow
     Q_OBJECT
 
 public:
-    explicit StyledWindow(QWidget* parent = 0,
+    explicit StyledWindow(QWidget* parent = nullptr,
                           Qt::WindowFlags f = Qt::WindowFlags(),
                           QString windowTitle = "");
     ~StyledWindow();
@@ -83,11 +78,11 @@ protected:
 
 private slots:
     void onTitleBarDestroyed();
-#endif
+#endif  // Q_OS_WIN
 private:
     struct StyledWindowPrivate;
     StyledWindowPrivate* d;
 };
 
 }  // namespace ads
-#endif  // ADS_FRAME_LESS_H
+#endif  // ADS_STYLED_WINDOW_H

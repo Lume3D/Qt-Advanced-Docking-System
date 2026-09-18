@@ -1,10 +1,10 @@
 #include "widget_event_helper.h"
 
+#include <QApplication>
 #include <QEvent>
 #include <QMouseEvent>
-#include <QWidget>
-#include <QApplication>
 #include <QStyle>
+#include <QWidget>
 
 namespace
 {
@@ -35,7 +35,6 @@ WidgetEventHelper::WidgetEventHelper(QObject* parent)
       inLastWidgetRect_(false),
       left_(false),
       pressed_(false),
-      released_(false),
       firstMove_(false)
 {}
 

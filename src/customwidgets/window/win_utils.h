@@ -1,10 +1,14 @@
-#ifndef ADS_WIN32_EVENT_UTILS
-#define ADS_WIN32_EVENT_UTILS
+#ifndef ADS_WIN_UTILS_H
+#define ADS_WIN_UTILS_H
 
 #ifdef WIN32
 
 #    undef NOMINMAX
 
+// clang-format off
+// Order matters and must not be sorted: <windows.h> defines the base types the
+// rest rely on, and GdiPlusColor.h needs ARGB from <gdiplus.h>. Alphabetising
+// this block fails to compile.
 #    include <windows.h>
 #    include <WinUser.h>
 #    include <windowsx.h>
@@ -12,13 +16,14 @@
 #    include <objidl.h>  // Fixes error C2504: 'IUnknown'
 #    include <gdiplus.h>
 #    include <GdiPlusColor.h>
+// clang-format on
+
 #    pragma comment(lib, "Dwmapi.lib")
 #    pragma comment(lib, "user32.lib")
 
 #    include <QOperatingSystemVersion>
 
 constexpr int FRAME_THICKNESS = 2;
-constexpr int TITLE_BAR_HEIGHT = 32;
 #    define W_10                                                                 \
         (QSysInfo::productVersion().contains("10")                               \
          && QOperatingSystemVersion::current().microVersion() < 21327)
@@ -84,10 +89,8 @@ typedef struct _ACCENT_POLICY
     DWORD AnimationId;
 } ACCENT_POLICY;
 
-typedef BOOL(WINAPI* pfnGetWindowCompositionAttribute)(
-    HWND, WINDOWCOMPOSITIONATTRIBDATA*);
 typedef BOOL(WINAPI* pfnSetWindowCompositionAttribute)(
     HWND, WINDOWCOMPOSITIONATTRIBDATA*);
 
-#endif
-#endif
+#endif  // WIN32
+#endif  // ADS_WIN_UTILS_H

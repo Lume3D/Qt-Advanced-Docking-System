@@ -2,7 +2,6 @@
 #    include <Cocoa/Cocoa.h>
 #endif
 #include <QGuiApplication>
-#include <QMainWindow>
 #include <QWindow>
 
 #include "macos_helper.h"
