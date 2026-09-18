@@ -141,6 +141,7 @@ set(ads_HEADERS
 if(BUILD_ADS_STYLED_WINDOW)
     list(PREPEND ads_SRCS
         customwidgets/window/styled_window.cpp
+        customwidgets/window/styled_window_p.h
     )
 
     list(PREPEND ads_HEADERS
@@ -151,6 +152,7 @@ if(BUILD_ADS_STYLED_WINDOW)
 
     if(WIN32)
         list(PREPEND ads_SRCS
+            customwidgets/window/styled_window_win.cpp
             customwidgets/window/widget_event_helper.cpp
         )
 
