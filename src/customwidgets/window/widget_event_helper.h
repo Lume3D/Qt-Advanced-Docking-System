@@ -3,7 +3,8 @@
 
 class QWidget;
 #include "type_versions.h"
-class WidgetEventHelper : QObject {
+class WidgetEventHelper : QObject
+{
     Q_OBJECT
 public:
     WidgetEventHelper(QObject* parent = nullptr);
@@ -30,15 +31,15 @@ private:
     void SendMousePress();
 
 private:
-    QWidget* widget_{ nullptr };
+    QWidget* widget_{nullptr};
 
-    bool inWidgetRect_{ false };
-    bool inLastWidgetRect_{ false };
+    bool inWidgetRect_{false};
+    bool inLastWidgetRect_{false};
 
-    bool left_{ false };
-    bool pressed_{ false };
-    bool released_{ false };
-    bool firstMove_{ false };
+    bool left_{false};
+    bool pressed_{false};
+    bool released_{false};
+    bool firstMove_{false};
 };
 
-#endif // ADS_QWIDGET_EVENT_HELPER_H
+#endif  // ADS_QWIDGET_EVENT_HELPER_H

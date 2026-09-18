@@ -3,27 +3,29 @@
 
 #ifdef WIN32
 
-#undef NOMINMAX
+#    undef NOMINMAX
 
-#include <windows.h>
-#include <WinUser.h>
-#include <windowsx.h>
-#include <dwmapi.h>
-#include <objidl.h> // Fixes error C2504: 'IUnknown'
-#include <gdiplus.h>
-#include <GdiPlusColor.h>
-#pragma comment(lib, "Dwmapi.lib")
-#pragma comment(lib, "user32.lib")
+#    include <windows.h>
+#    include <WinUser.h>
+#    include <windowsx.h>
+#    include <dwmapi.h>
+#    include <objidl.h>  // Fixes error C2504: 'IUnknown'
+#    include <gdiplus.h>
+#    include <GdiPlusColor.h>
+#    pragma comment(lib, "Dwmapi.lib")
+#    pragma comment(lib, "user32.lib")
 
-#include <QOperatingSystemVersion>
+#    include <QOperatingSystemVersion>
 
 constexpr int FRAME_THICKNESS = 2;
 constexpr int TITLE_BAR_HEIGHT = 32;
-#define W_10 (QSysInfo::productVersion().contains("10") && QOperatingSystemVersion::current().microVersion() < 21327)
-#undef MIN
-#undef MAX
-#undef min
-#undef max
+#    define W_10                                                                 \
+        (QSysInfo::productVersion().contains("10")                               \
+         && QOperatingSystemVersion::current().microVersion() < 21327)
+#    undef MIN
+#    undef MAX
+#    undef min
+#    undef max
 
 typedef enum _WINDOWCOMPOSITIONATTRIB
 {
