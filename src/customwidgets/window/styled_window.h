@@ -8,6 +8,10 @@
 
 class QMenu;
 
+#ifdef Q_OS_WIN
+struct tagMSG;
+#endif
+
 namespace ads
 {
 class ADS_EXPORT IStyledWindow
@@ -64,6 +68,34 @@ protected:
 
     bool nativeEvent(const QByteArray& eventType, void* message,
                      Q_RESULT_TYPE result) override;
+
+    // One handler per intercepted message. Each returns what nativeEvent()
+    // returns for that message and writes *result exactly as before.
+    bool onSysKeyDown(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcCalcSize(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcHitTest(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onDisplayChange(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onDpiChanged(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onSize(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onGetMinMaxInfo(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onLButtonUp(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcMouseLeave(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onEraseBackground(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcUahDraw(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onMouseMove(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcLButtonDown(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcLButtonUp(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcLButtonDblClk(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onEnterSizeMove(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onExitSizeMove(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onStyleChanged(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onSetFocus(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onActivate(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onThemeChanged(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onSettingChange(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onNcActivate(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onWindowPosChanging(tagMSG* msg, Q_RESULT_TYPE result);
+    bool onPowerBroadcast(tagMSG* msg, Q_RESULT_TYPE result);
 
     bool isOutOfWidget(QWidget* widget);
     QMenu* createPopupMenu() override;

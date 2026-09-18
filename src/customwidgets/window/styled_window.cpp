@@ -1128,6 +1128,512 @@ void StyledWindow::showSystemMenu(QWidget* widget, const QPoint& pos)
     }
 }
 
+bool StyledWindow::onSysKeyDown(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (msg->wParam == VK_SPACE)
+    {
+        showSystemMenu(this, systemMenuAnchor());
+    }
+    return false;
+}
+
+bool StyledWindow::onNcCalcSize(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (this->isVisible())
+    {
+        const bool isMaximized = ::IsZoomed(msg->hwnd) != FALSE;
+        const auto rect =
+            msg->wParam ?
+                &(reinterpret_cast<LPNCCALCSIZE_PARAMS>(msg->lParam))->rgrc[0] :
+                reinterpret_cast<LPRECT>(msg->lParam);
+
+        if (!isMaximized)
+        {
+            const RECT oriRect = *rect;
+            const auto oriResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE,
+                                                    msg->wParam, msg->lParam);
+            if (oriResult)
+            {
+                *result = oriResult;
+                return true;
+            }
+            // In normal state Qt6 can drift away from the visible HWND
+            // bounds if we keep DefWindowProc's hidden frame insets here.
+            // Preserve the original rect so the Qt client matches the
+            // actual visible window bounds.
+            *rect = oriRect;
+        }
+        *result = false;
+        return true;
+    }
+    return false;
+}
+
+bool StyledWindow::onNcHitTest(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    *result = 0;
+    for (const auto& button : d->chromeButtons())
+    {
+        if (button.helper)
+        {
+            button.helper->HandleMouseMove();
+        }
+    }
+
+    const LONG borderWidth = d->borderWidth_;
+    RECT winrect;
+    GetWindowRect(HWND(effectiveWinId()), &winrect);
+
+    long x = GET_X_LPARAM(msg->lParam);
+    long y = GET_Y_LPARAM(msg->lParam);
+
+    if (d->resizeable_)
+    {
+        bool resizeWidth = minimumWidth() != maximumWidth();
+        bool resizeHeight = minimumHeight() != maximumHeight();
+
+        if (resizeWidth)
+        {
+            // left border
+            if (x >= winrect.left && x < winrect.left + borderWidth)
+            {
+                *result = HTLEFT;
+            }
+            // right border
+            if (x < winrect.right && x >= winrect.right - borderWidth)
+            {
+                *result = HTRIGHT;
+            }
+        }
+        if (resizeHeight)
+        {
+            // bottom border
+            if (y < winrect.bottom && y >= winrect.bottom - borderWidth)
+            {
+                *result = HTBOTTOM;
+            }
+            // top border
+            if (y >= winrect.top && y < winrect.top + borderWidth)
+            {
+                *result = HTTOP;
+            }
+        }
+        if (resizeWidth && resizeHeight)
+        {
+            // bottom left corner
+            if (x >= winrect.left && x < winrect.left + borderWidth
+                && y < winrect.bottom && y >= winrect.bottom - borderWidth)
+            {
+                *result = HTBOTTOMLEFT;
+            }
+            // bottom right corner
+            if (x < winrect.right && x >= winrect.right - borderWidth
+                && y < winrect.bottom && y >= winrect.bottom - borderWidth)
+            {
+                *result = HTBOTTOMRIGHT;
+            }
+            // top left corner
+            if (x >= winrect.left && x < winrect.left + borderWidth
+                && y >= winrect.top && y < winrect.top + borderWidth)
+            {
+                *result = HTTOPLEFT;
+            }
+            // top right corner
+            if (x < winrect.right && x >= winrect.right - borderWidth
+                && y >= winrect.top && y < winrect.top + borderWidth)
+            {
+                *result = HTTOPRIGHT;
+            }
+        }
+    }
+    if (0 != *result)
+        return true;
+
+    if (!d->titleBar_)
+        return false;
+
+    const QPoint pos = d->titleBar_->mapFromGlobal(QCursor::pos());
+    if (isOutOfWidget(d->titleBar_))
+        return false;
+
+    QWidget* child = d->titleBar_->childAt(pos);
+    if (!child)
+    {
+        *result = HTCAPTION;
+        return true;
+    }
+    else
+    {
+        for (const auto& button : d->chromeButtons())
+        {
+            if (button.helper && button.helper->Widget()
+                && button.helper->Widget() == child)
+            {
+                button.helper->SetWidgetRectFlag(true);
+                *result = button.hitTest;
+                return true;
+            }
+        }
+        if (d->whiteList_.contains(child))
+        {
+            *result = HTCAPTION;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool StyledWindow::onDisplayChange(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    qDebug() << ("DISPLAYS Changed\n");
+    // DPI LOST AFTER ADD OR REMOVE DISPLAY
+    QTimer::singleShot(1000, [this]() { forceRedraw(); });
+    return false;
+}
+
+bool StyledWindow::onDpiChanged(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    const auto dpi = static_cast<UINT>(HIWORD(msg->wParam));
+    const auto dpr = static_cast<float>(dpi)
+                     / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
+    RECT* const rect = (RECT*)msg->lParam;
+    qDebug() << ("DPI Changed: ") << dpr;
+    d->displayScale_ = dpr;
+    updateWindowDpr(dpr,
+                    QRect(rect->left, rect->top, rect->right - rect->left,
+                          rect->bottom - rect->top),
+                    (WId)msg->hwnd);
+    return false;
+}
+
+bool StyledWindow::onSize(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    const bool wasJustMinimized = d->justMinimized_;
+    if (msg->wParam == SIZE_RESTORED && d->justMinimized_)
+    {
+        d->justMinimized_ = false;
+    }
+
+    if (msg->wParam == SIZE_MINIMIZED)
+    {
+        d->justMinimized_ = true;
+        d->pendingStateResizePaint_ = false;
+    }
+    else if (msg->wParam == SIZE_MAXIMIZED
+             || (msg->wParam == SIZE_RESTORED && !wasJustMinimized))
+    {
+        d->pendingStateResizePaint_ = true;
+        redrawWindowNow(msg->hwnd);
+    }
+    return false;
+}
+
+bool StyledWindow::onGetMinMaxInfo(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (::IsZoomed(msg->hwnd))
+    {
+        RECT frame = {0, 0, 0, 0};
+        AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0);
+
+        const auto dpr = nativeWindowDpr(msg->hwnd, d->displayScale_);
+
+        d->frames_.setLeft(abs(frame.left) / dpr + 0.5);
+        d->frames_.setTop(abs(frame.bottom) / dpr + 0.5);
+        d->frames_.setRight(abs(frame.right) / dpr + 0.5);
+        d->frames_.setBottom(abs(frame.bottom) / dpr + 0.5);
+
+        QMainWindow::setContentsMargins(d->frames_.left() + d->margins_.left(),
+                                        d->frames_.top() + d->margins_.top(),
+                                        d->frames_.right() + d->margins_.right(),
+                                        d->frames_.bottom()
+                                            + d->margins_.bottom());
+        d->justMaximized_ = true;
+    }
+    else
+    {
+        if (d->justMaximized_)
+        {
+            QMainWindow::setContentsMargins(d->margins_);
+            d->frames_ = QMargins();
+            d->justMaximized_ = false;
+        }
+    }
+    return false;
+}
+
+bool StyledWindow::onLButtonUp(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (!d->chromeHelpersReady())
+    {
+        return false;
+    }
+
+    for (const auto& button : d->chromeButtons())
+    {
+        button.helper->HandleMouseRelease(result, false);
+    }
+    return false;
+}
+
+bool StyledWindow::onNcMouseLeave(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (!d->chromeHelpersReady())
+    {
+        return false;
+    }
+
+    for (const auto& button : d->chromeButtons())
+    {
+        button.helper->SetWidgetRectFlag(false);
+    }
+    for (const auto& button : d->chromeButtons())
+    {
+        button.helper->HandleMouseMove();
+    }
+
+    return false;
+}
+
+bool StyledWindow::onEraseBackground(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (d->pendingStateResizePaint_ || d->cloakPending_)
+    {
+        *result = 1;
+        return true;
+    }
+    return false;
+}
+
+bool StyledWindow::onNcUahDraw(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    *result = 0;
+    return true;
+}
+
+bool StyledWindow::onMouseMove(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (!d->chromeHelpersReady())
+    {
+        return false;
+    }
+    *result = 0;
+    for (const auto& button : d->chromeButtons())
+    {
+        if (button.helper->IsFirstMove())
+        {
+            button.helper->SetFirstMove(false);
+            button.helper->SendMouseRelease(false);
+        }
+    }
+
+    for (const auto& button : d->chromeButtons())
+    {
+        button.helper->HandleMouseMove();
+    }
+
+    if (!d->titleBar_)
+        return false;
+
+    const QPoint pos = d->titleBar_->mapFromGlobal(QCursor::pos());
+    if (isOutOfWidget(d->titleBar_))
+        return false;
+
+    QWidget* child = d->titleBar_->childAt(pos);
+    if (child)
+    {
+        if (d->whiteList_.contains(child))
+        {
+            *result = HTCAPTION;
+            return true;
+        }
+        for (const auto& button : d->chromeButtons())
+        {
+            if (button.helper->Widget() && button.helper->Widget() == child)
+            {
+                button.helper->SetWidgetRectFlag(true);
+            }
+        }
+    }
+    return false;
+}
+
+bool StyledWindow::onNcLButtonDown(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (!d->chromeHelpersReady())
+    {
+        return false;
+    }
+    for (const auto& button : d->chromeButtons())
+    {
+        button.helper->HandleMouseMove();
+    }
+    if (auto* helper = d->chromeHelperFor(msg->wParam))
+    {
+        if (helper->HandleMousePress(result))
+            return true;
+    }
+    return false;
+}
+
+bool StyledWindow::onNcLButtonUp(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (!d->chromeHelpersReady())
+    {
+        return false;
+    }
+    if (auto* helper = d->chromeHelperFor(msg->wParam))
+    {
+        if (helper->HandleMouseRelease(result))
+            return true;
+    }
+
+    for (const auto& button : d->chromeButtons())
+    {
+        button.helper->ReleaseFlag();
+    }
+    return false;
+}
+
+bool StyledWindow::onNcLButtonDblClk(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (msg->wParam == HTCAPTION)
+    {
+        d->pendingStateResizePaint_ = true;
+        redrawWindowNow(msg->hwnd);
+
+        *result =
+            DefWindowProcW(msg->hwnd, msg->message, msg->wParam, msg->lParam);
+        return true;
+    }
+    return false;
+}
+
+bool StyledWindow::onEnterSizeMove(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    d->inSizeMove_ = true;
+    return false;
+}
+
+bool StyledWindow::onExitSizeMove(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    d->inSizeMove_ = false;
+    redrawWindowNow(msg->hwnd, /*eraseBackground=*/true);
+    return false;
+}
+
+bool StyledWindow::onStyleChanged(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (msg->wParam == GWL_STYLE)
+    {
+        const auto* style = reinterpret_cast<const STYLESTRUCT*>(msg->lParam);
+        constexpr DWORD kFrameStyleMask = WS_CAPTION | WS_THICKFRAME
+                                          | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        // Modal dialogs temporarily toggle owner styles such as
+        // WS_DISABLED. Ignore those changes so we do not force a full
+        // frame refresh and nudge the window position.
+        if (style
+            && (((style->styleOld ^ style->styleNew) & kFrameStyleMask) != 0))
+        {
+            setResizeable(d->resizeable_);
+            constructHintButtons();
+        }
+    }
+    return false;
+}
+
+bool StyledWindow::onSetFocus(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    queueRestoreClientFocus();
+    return false;
+}
+
+bool StyledWindow::onActivate(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (LOWORD(msg->wParam) != WA_INACTIVE)
+    {
+        queueRestoreClientFocus();
+    }
+    return false;
+}
+
+bool StyledWindow::onThemeChanged(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (scheduleDarkModeRefresh())
+    {
+        *result = 0;
+        return true;
+    }
+    return false;
+}
+
+bool StyledWindow::onSettingChange(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    if (wcscmp(reinterpret_cast<LPCWSTR>(msg->lParam), L"ImmersiveColorSet") == 0)
+    {
+        if (scheduleDarkModeRefresh())
+        {
+            *result = 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool StyledWindow::onNcActivate(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    *result =
+        DefWindowProcW(HWND(effectiveWinId()), WM_NCACTIVATE, msg->wParam, -1);
+    return false;
+}
+
+bool StyledWindow::onWindowPosChanging(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    const auto windowPos = reinterpret_cast<LPWINDOWPOS>(msg->lParam);
+    if (!d->inSizeMove_ && (d->pendingStateResizePaint_ || d->cloakPending_))
+    {
+        windowPos->flags |= SWP_NOCOPYBITS;
+    }
+    return false;
+}
+
+bool StyledWindow::onPowerBroadcast(tagMSG* msg, Q_RESULT_TYPE result)
+{
+    switch (msg->wParam)
+    {
+    case PBT_APMRESUMEAUTOMATIC:
+    {
+        qDebug() << ("PBT_APMRESUMEAUTOMATIC  received\n");
+        // DPI LOST AFTER RESUME FROM SLEEP
+        QTimer::singleShot(100, [this]() {
+            RECT rect;
+            const auto hwnd = reinterpret_cast<HWND>(this->winId());
+            GetWindowRect(hwnd, &rect);
+            updateWindowDpr(nativeWindowDpr(hwnd, d->displayScale_),
+                            QRect(rect.left, rect.top, rect.right - rect.left,
+                                  rect.bottom - rect.top),
+                            this->winId());
+        });
+        break;
+    }
+    case PBT_APMPOWERSTATUSCHANGE:
+    {
+        qDebug() << ("PBT_APMPOWERSTATUSCHANGE  received\n");
+        break;
+    }
+    case PBT_APMRESUMESUSPEND:
+    {
+        qDebug() << ("PBT_APMRESUMESUSPEND  received\n");
+        break;
+    }
+    case PBT_APMSUSPEND:
+    {
+        qDebug() << ("PBT_APMSUSPEND  received\n");
+        break;
+    }
+    }
+    return false;
+}
+
 bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
                                Q_RESULT_TYPE result)
 {
@@ -1139,510 +1645,32 @@ bool StyledWindow::nativeEvent(const QByteArray& eventType, void* message,
 
     switch (msg->message)
     {
-    case WM_SYSKEYDOWN:
-    {
-        if (msg->wParam == VK_SPACE)
-        {
-            showSystemMenu(this, systemMenuAnchor());
-        }
-        break;
-    }
-    case WM_NCCALCSIZE:
-    {
-        if (this->isVisible())
-        {
-            const bool isMaximized = ::IsZoomed(msg->hwnd) != FALSE;
-            const auto rect =
-                msg->wParam ?
-                    &(reinterpret_cast<LPNCCALCSIZE_PARAMS>(msg->lParam))
-                         ->rgrc[0] :
-                    reinterpret_cast<LPRECT>(msg->lParam);
-
-            if (!isMaximized)
-            {
-                const RECT oriRect = *rect;
-                const auto oriResult = ::DefWindowProcW(msg->hwnd, WM_NCCALCSIZE,
-                                                        msg->wParam, msg->lParam);
-                if (oriResult)
-                {
-                    *result = oriResult;
-                    return true;
-                }
-                // In normal state Qt6 can drift away from the visible HWND
-                // bounds if we keep DefWindowProc's hidden frame insets here.
-                // Preserve the original rect so the Qt client matches the
-                // actual visible window bounds.
-                *rect = oriRect;
-            }
-            *result = false;
-            return true;
-        }
-        return false;
-    }
-
-    case WM_NCHITTEST:
-    {
-        *result = 0;
-        for (const auto& button : d->chromeButtons())
-        {
-            if (button.helper)
-            {
-                button.helper->HandleMouseMove();
-            }
-        }
-
-        const LONG borderWidth = d->borderWidth_;
-        RECT winrect;
-        GetWindowRect(HWND(effectiveWinId()), &winrect);
-
-        long x = GET_X_LPARAM(msg->lParam);
-        long y = GET_Y_LPARAM(msg->lParam);
-
-        if (d->resizeable_)
-        {
-            bool resizeWidth = minimumWidth() != maximumWidth();
-            bool resizeHeight = minimumHeight() != maximumHeight();
-
-            if (resizeWidth)
-            {
-                // left border
-                if (x >= winrect.left && x < winrect.left + borderWidth)
-                {
-                    *result = HTLEFT;
-                }
-                // right border
-                if (x < winrect.right && x >= winrect.right - borderWidth)
-                {
-                    *result = HTRIGHT;
-                }
-            }
-            if (resizeHeight)
-            {
-                // bottom border
-                if (y < winrect.bottom && y >= winrect.bottom - borderWidth)
-                {
-                    *result = HTBOTTOM;
-                }
-                // top border
-                if (y >= winrect.top && y < winrect.top + borderWidth)
-                {
-                    *result = HTTOP;
-                }
-            }
-            if (resizeWidth && resizeHeight)
-            {
-                // bottom left corner
-                if (x >= winrect.left && x < winrect.left + borderWidth
-                    && y < winrect.bottom && y >= winrect.bottom - borderWidth)
-                {
-                    *result = HTBOTTOMLEFT;
-                }
-                // bottom right corner
-                if (x < winrect.right && x >= winrect.right - borderWidth
-                    && y < winrect.bottom && y >= winrect.bottom - borderWidth)
-                {
-                    *result = HTBOTTOMRIGHT;
-                }
-                // top left corner
-                if (x >= winrect.left && x < winrect.left + borderWidth
-                    && y >= winrect.top && y < winrect.top + borderWidth)
-                {
-                    *result = HTTOPLEFT;
-                }
-                // top right corner
-                if (x < winrect.right && x >= winrect.right - borderWidth
-                    && y >= winrect.top && y < winrect.top + borderWidth)
-                {
-                    *result = HTTOPRIGHT;
-                }
-            }
-        }
-        if (0 != *result)
-            return true;
-
-        if (!d->titleBar_)
-            return false;
-
-        const QPoint pos = d->titleBar_->mapFromGlobal(QCursor::pos());
-        if (isOutOfWidget(d->titleBar_))
-            return false;
-
-        QWidget* child = d->titleBar_->childAt(pos);
-        if (!child)
-        {
-            *result = HTCAPTION;
-            return true;
-        }
-        else
-        {
-            for (const auto& button : d->chromeButtons())
-            {
-                if (button.helper && button.helper->Widget()
-                    && button.helper->Widget() == child)
-                {
-                    button.helper->SetWidgetRectFlag(true);
-                    *result = button.hitTest;
-                    return true;
-                }
-            }
-            if (d->whiteList_.contains(child))
-            {
-                *result = HTCAPTION;
-                return true;
-            }
-        }
-        return false;
-    }
-    case WM_DISPLAYCHANGE:
-    {
-        qDebug() << ("DISPLAYS Changed\n");
-        // DPI LOST AFTER ADD OR REMOVE DISPLAY
-        QTimer::singleShot(1000, [this]() { forceRedraw(); });
-        break;
-    }
-    case WM_DPICHANGED:
-    {
-        const auto dpi = static_cast<UINT>(HIWORD(msg->wParam));
-        const auto dpr = static_cast<float>(dpi)
-                         / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
-        RECT* const rect = (RECT*)msg->lParam;
-        qDebug() << ("DPI Changed: ") << dpr;
-        d->displayScale_ = dpr;
-        updateWindowDpr(dpr,
-                        QRect(rect->left, rect->top, rect->right - rect->left,
-                              rect->bottom - rect->top),
-                        (WId)msg->hwnd);
-        break;
-    }
-
-    case WM_SIZE:
-    {
-        const bool wasJustMinimized = d->justMinimized_;
-        if (msg->wParam == SIZE_RESTORED && d->justMinimized_)
-        {
-            d->justMinimized_ = false;
-        }
-
-        if (msg->wParam == SIZE_MINIMIZED)
-        {
-            d->justMinimized_ = true;
-            d->pendingStateResizePaint_ = false;
-        }
-        else if (msg->wParam == SIZE_MAXIMIZED
-                 || (msg->wParam == SIZE_RESTORED && !wasJustMinimized))
-        {
-            d->pendingStateResizePaint_ = true;
-            redrawWindowNow(msg->hwnd);
-        }
-        return false;
-    }
-
-    case WM_GETMINMAXINFO:
-    {
-        if (::IsZoomed(msg->hwnd))
-        {
-            RECT frame = {0, 0, 0, 0};
-            AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0);
-
-            const auto dpr = nativeWindowDpr(msg->hwnd, d->displayScale_);
-
-            d->frames_.setLeft(abs(frame.left) / dpr + 0.5);
-            d->frames_.setTop(abs(frame.bottom) / dpr + 0.5);
-            d->frames_.setRight(abs(frame.right) / dpr + 0.5);
-            d->frames_.setBottom(abs(frame.bottom) / dpr + 0.5);
-
-            QMainWindow::setContentsMargins(
-                d->frames_.left() + d->margins_.left(),
-                d->frames_.top() + d->margins_.top(),
-                d->frames_.right() + d->margins_.right(),
-                d->frames_.bottom() + d->margins_.bottom());
-            d->justMaximized_ = true;
-        }
-        else
-        {
-            if (d->justMaximized_)
-            {
-                QMainWindow::setContentsMargins(d->margins_);
-                d->frames_ = QMargins();
-                d->justMaximized_ = false;
-            }
-        }
-        return false;
-    }
-
-    // Handle Mouse Event from native Q_OS_WIN and serve the gesture to Qt
-    case WM_LBUTTONUP:
-    {
-        if (!d->chromeHelpersReady())
-        {
-            return false;
-        }
-
-        for (const auto& button : d->chromeButtons())
-        {
-            button.helper->HandleMouseRelease(result, false);
-        }
-        return false;
-    }
-
-    case WM_NCMOUSELEAVE:
-    {
-        if (!d->chromeHelpersReady())
-        {
-            return false;
-        }
-
-        for (const auto& button : d->chromeButtons())
-        {
-            button.helper->SetWidgetRectFlag(false);
-        }
-        for (const auto& button : d->chromeButtons())
-        {
-            button.helper->HandleMouseMove();
-        }
-
-        break;
-    }
-
-    case WM_ERASEBKGND:
-    {
-        if (d->pendingStateResizePaint_ || d->cloakPending_)
-        {
-            *result = 1;
-            return true;
-        }
-        break;
-    }
+    case WM_SYSKEYDOWN: return onSysKeyDown(msg, result);
+    case WM_NCCALCSIZE: return onNcCalcSize(msg, result);
+    case WM_NCHITTEST: return onNcHitTest(msg, result);
+    case WM_DISPLAYCHANGE: return onDisplayChange(msg, result);
+    case WM_DPICHANGED: return onDpiChanged(msg, result);
+    case WM_SIZE: return onSize(msg, result);
+    case WM_GETMINMAXINFO: return onGetMinMaxInfo(msg, result);
+    case WM_LBUTTONUP: return onLButtonUp(msg, result);
+    case WM_NCMOUSELEAVE: return onNcMouseLeave(msg, result);
+    case WM_ERASEBKGND: return onEraseBackground(msg, result);
     case WM_NCUAHDRAWCAPTION:
-    case WM_NCUAHDRAWFRAME:
-    {
-        *result = 0;
-        return true;
-    }
-
-    case WM_MOUSEMOVE:
-    {
-        if (!d->chromeHelpersReady())
-        {
-            return false;
-        }
-        *result = 0;
-        for (const auto& button : d->chromeButtons())
-        {
-            if (button.helper->IsFirstMove())
-            {
-                button.helper->SetFirstMove(false);
-                button.helper->SendMouseRelease(false);
-            }
-        }
-
-        for (const auto& button : d->chromeButtons())
-        {
-            button.helper->HandleMouseMove();
-        }
-
-        if (!d->titleBar_)
-            return false;
-
-        const QPoint pos = d->titleBar_->mapFromGlobal(QCursor::pos());
-        if (isOutOfWidget(d->titleBar_))
-            return false;
-
-        QWidget* child = d->titleBar_->childAt(pos);
-        if (child)
-        {
-            if (d->whiteList_.contains(child))
-            {
-                *result = HTCAPTION;
-                return true;
-            }
-            for (const auto& button : d->chromeButtons())
-            {
-                if (button.helper->Widget() && button.helper->Widget() == child)
-                {
-                    button.helper->SetWidgetRectFlag(true);
-                }
-            }
-        }
-        return false;
-    }
-
-    case WM_NCLBUTTONDOWN:
-    {
-        if (!d->chromeHelpersReady())
-        {
-            return false;
-        }
-        for (const auto& button : d->chromeButtons())
-        {
-            button.helper->HandleMouseMove();
-        }
-        if (auto* helper = d->chromeHelperFor(msg->wParam))
-        {
-            if (helper->HandleMousePress(result))
-                return true;
-        }
-        return false;
-    }
-
-    case WM_NCLBUTTONUP:
-    {
-        if (!d->chromeHelpersReady())
-        {
-            return false;
-        }
-        if (auto* helper = d->chromeHelperFor(msg->wParam))
-        {
-            if (helper->HandleMouseRelease(result))
-                return true;
-        }
-
-        for (const auto& button : d->chromeButtons())
-        {
-            button.helper->ReleaseFlag();
-        }
-        return false;
-    }
-
-    case WM_NCLBUTTONDBLCLK:
-    {
-        if (msg->wParam == HTCAPTION)
-        {
-            d->pendingStateResizePaint_ = true;
-            redrawWindowNow(msg->hwnd);
-
-            *result =
-                DefWindowProcW(msg->hwnd, msg->message, msg->wParam, msg->lParam);
-            return true;
-        }
-        return false;
-    }
-
-    case WM_ENTERSIZEMOVE:
-    {
-        d->inSizeMove_ = true;
-        break;
-    }
-
-    case WM_EXITSIZEMOVE:
-    {
-        d->inSizeMove_ = false;
-        redrawWindowNow(msg->hwnd, /*eraseBackground=*/true);
-        break;
-    }
-
-    case WM_STYLECHANGED:
-    {
-        if (msg->wParam == GWL_STYLE)
-        {
-            const auto* style = reinterpret_cast<const STYLESTRUCT*>(msg->lParam);
-            constexpr DWORD kFrameStyleMask = WS_CAPTION | WS_THICKFRAME
-                                              | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
-            // Modal dialogs temporarily toggle owner styles such as
-            // WS_DISABLED. Ignore those changes so we do not force a full
-            // frame refresh and nudge the window position.
-            if (style
-                && (((style->styleOld ^ style->styleNew) & kFrameStyleMask) != 0))
-            {
-                setResizeable(d->resizeable_);
-                constructHintButtons();
-            }
-        }
-        break;
-    }
-
-    case WM_SETFOCUS:
-    {
-        queueRestoreClientFocus();
-        break;
-    }
-
-    case WM_ACTIVATE:
-    {
-        if (LOWORD(msg->wParam) != WA_INACTIVE)
-        {
-            queueRestoreClientFocus();
-        }
-        break;
-    }
-
-    case WM_THEMECHANGED:
-    {
-        if (scheduleDarkModeRefresh())
-        {
-            *result = 0;
-            return true;
-        }
-        break;
-    }
-
-    case WM_SETTINGCHANGE:
-    {
-        if (wcscmp(reinterpret_cast<LPCWSTR>(msg->lParam), L"ImmersiveColorSet")
-            == 0)
-        {
-            if (scheduleDarkModeRefresh())
-            {
-                *result = 0;
-                return true;
-            }
-        }
-        break;
-    }
-
-    case WM_NCACTIVATE:
-    {
-        *result = DefWindowProcW(HWND(effectiveWinId()), WM_NCACTIVATE,
-                                 msg->wParam, -1);
-        break;
-    }
-
-    case WM_WINDOWPOSCHANGING:
-    {
-        const auto windowPos = reinterpret_cast<LPWINDOWPOS>(msg->lParam);
-        if (!d->inSizeMove_ && (d->pendingStateResizePaint_ || d->cloakPending_))
-        {
-            windowPos->flags |= SWP_NOCOPYBITS;
-        }
-        break;
-    }
-    case WM_POWERBROADCAST:
-    {
-        switch (msg->wParam)
-        {
-        case PBT_APMRESUMEAUTOMATIC:
-        {
-            qDebug() << ("PBT_APMRESUMEAUTOMATIC  received\n");
-            // DPI LOST AFTER RESUME FROM SLEEP
-            QTimer::singleShot(100, [this]() {
-                RECT rect;
-                const auto hwnd = reinterpret_cast<HWND>(this->winId());
-                GetWindowRect(hwnd, &rect);
-                updateWindowDpr(nativeWindowDpr(hwnd, d->displayScale_),
-                                QRect(rect.left, rect.top, rect.right - rect.left,
-                                      rect.bottom - rect.top),
-                                this->winId());
-            });
-            break;
-        }
-        case PBT_APMPOWERSTATUSCHANGE:
-        {
-            qDebug() << ("PBT_APMPOWERSTATUSCHANGE  received\n");
-            break;
-        }
-        case PBT_APMRESUMESUSPEND:
-        {
-            qDebug() << ("PBT_APMRESUMESUSPEND  received\n");
-            break;
-        }
-        case PBT_APMSUSPEND:
-        {
-            qDebug() << ("PBT_APMSUSPEND  received\n");
-            break;
-        }
-        }
-        break;
-    }
+    case WM_NCUAHDRAWFRAME: return onNcUahDraw(msg, result);
+    case WM_MOUSEMOVE: return onMouseMove(msg, result);
+    case WM_NCLBUTTONDOWN: return onNcLButtonDown(msg, result);
+    case WM_NCLBUTTONUP: return onNcLButtonUp(msg, result);
+    case WM_NCLBUTTONDBLCLK: return onNcLButtonDblClk(msg, result);
+    case WM_ENTERSIZEMOVE: return onEnterSizeMove(msg, result);
+    case WM_EXITSIZEMOVE: return onExitSizeMove(msg, result);
+    case WM_STYLECHANGED: return onStyleChanged(msg, result);
+    case WM_SETFOCUS: return onSetFocus(msg, result);
+    case WM_ACTIVATE: return onActivate(msg, result);
+    case WM_THEMECHANGED: return onThemeChanged(msg, result);
+    case WM_SETTINGCHANGE: return onSettingChange(msg, result);
+    case WM_NCACTIVATE: return onNcActivate(msg, result);
+    case WM_WINDOWPOSCHANGING: return onWindowPosChanging(msg, result);
+    case WM_POWERBROADCAST: return onPowerBroadcast(msg, result);
     default: break;
     }
     return false;
