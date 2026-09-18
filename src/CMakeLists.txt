@@ -141,7 +141,16 @@ set(ads_HEADERS
 if(BUILD_ADS_STYLED_WINDOW)
     list(PREPEND ads_SRCS
         customwidgets/window/styled_window.cpp
+        customwidgets/window/styled_window_p.h
     )
+
+    # Exactly one implementation of the platform hooks is compiled. Each file
+    # guards itself, so listing the fallback unconditionally is harmless.
+    if(NOT WIN32 AND NOT APPLE)
+        list(PREPEND ads_SRCS
+            customwidgets/window/styled_window_default.cpp
+        )
+    endif()
 
     list(PREPEND ads_HEADERS
         customwidgets/window/styled_window.h
@@ -151,6 +160,7 @@ if(BUILD_ADS_STYLED_WINDOW)
 
     if(WIN32)
         list(PREPEND ads_SRCS
+            customwidgets/window/styled_window_win.cpp
             customwidgets/window/widget_event_helper.cpp
         )
 
@@ -162,6 +172,7 @@ if(BUILD_ADS_STYLED_WINDOW)
 
     if(APPLE)
         list(PREPEND ads_SRCS
+            customwidgets/window/styled_window_mac.cpp
             customwidgets/window/macos_helper.mm
         )
 

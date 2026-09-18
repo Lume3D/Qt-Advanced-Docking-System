@@ -1,19 +1,22 @@
 #include "widget_event_helper.h"
 
+#include <QApplication>
 #include <QEvent>
 #include <QMouseEvent>
-#include <QWidget>
-#include <QApplication>
 #include <QStyle>
+#include <QWidget>
 
-namespace {
+namespace
+{
 void UpdateHoverState(QWidget* widget, bool hovered)
 {
-    if (!widget) {
+    if (!widget)
+    {
         return;
     }
     if (widget->property("hovered").toBool() == hovered
-        && widget->testAttribute(Qt::WA_UnderMouse) == hovered) {
+        && widget->testAttribute(Qt::WA_UnderMouse) == hovered)
+    {
         return;
     }
 
@@ -23,7 +26,7 @@ void UpdateHoverState(QWidget* widget, bool hovered)
     widget->style()->polish(widget);
     widget->update();
 }
-} // namespace
+}  // namespace
 
 WidgetEventHelper::WidgetEventHelper(QObject* parent)
     : QObject(parent),
@@ -32,11 +35,11 @@ WidgetEventHelper::WidgetEventHelper(QObject* parent)
       inLastWidgetRect_(false),
       left_(false),
       pressed_(false),
-      released_(false),
       firstMove_(false)
 {}
 
-WidgetEventHelper::~WidgetEventHelper() {}
+WidgetEventHelper::~WidgetEventHelper()
+{}
 
 void WidgetEventHelper::SetWidget(QWidget* widget)
 {
@@ -73,7 +76,8 @@ void WidgetEventHelper::SetFirstMove(bool firstEnter)
 bool WidgetEventHelper::HandleMousePress(Q_RESULT_TYPE result)
 {
     *result = 0;
-    if (widget_) {
+    if (widget_)
+    {
         this->firstMove_ = true;
         this->pressed_ = true;
         this->SendMousePress();
@@ -85,18 +89,24 @@ bool WidgetEventHelper::HandleMousePress(Q_RESULT_TYPE result)
 bool WidgetEventHelper::HandleMouseRelease(Q_RESULT_TYPE result, bool isNClient)
 {
     *result = 0;
-    if (widget_) {
-        if (pressed_) {
+    if (widget_)
+    {
+        if (pressed_)
+        {
             pressed_ = false;
-            if (isNClient) {
+            if (isNClient)
+            {
                 SendMouseRelease(inWidgetRect_);
                 left_ = true;
                 inWidgetRect_ = false;
                 inLastWidgetRect_ = false;
                 SendMouseLeave();
                 return true;
-            } else {
-                if (inWidgetRect_) {
+            }
+            else
+            {
+                if (inWidgetRect_)
+                {
                     SendMousePress();
                     SendMouseRelease(true);
                 }
@@ -108,16 +118,22 @@ bool WidgetEventHelper::HandleMouseRelease(Q_RESULT_TYPE result, bool isNClient)
 
 void WidgetEventHelper::HandleMouseMove()
 {
-    if (widget_) {
-        if (left_) {
+    if (widget_)
+    {
+        if (left_)
+        {
             left_ = false;
             return;
         }
-        if (inWidgetRect_ != inLastWidgetRect_) {
+        if (inWidgetRect_ != inLastWidgetRect_)
+        {
             inLastWidgetRect_ = inWidgetRect_;
-            if (inWidgetRect_) {
+            if (inWidgetRect_)
+            {
                 SendMouseEnter();
-            } else {
+            }
+            else
+            {
                 SendMouseLeave();
             }
         }
@@ -142,17 +158,23 @@ void WidgetEventHelper::SendMouseLeave()
 
 void WidgetEventHelper::SendMousePress()
 {
-    QMouseEvent event(QEvent::MouseButtonPress, QPoint(0, 0), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QMouseEvent event(QEvent::MouseButtonPress, QPoint(0, 0), Qt::LeftButton,
+                      Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(widget_, &event);
 }
 
 void WidgetEventHelper::SendMouseRelease(bool inWidgetRect)
 {
-    if (inWidgetRect) {
-        QMouseEvent event(QEvent::MouseButtonRelease, QPoint(0, 0), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    if (inWidgetRect)
+    {
+        QMouseEvent event(QEvent::MouseButtonRelease, QPoint(0, 0),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(widget_, &event);
-    } else {
-        QMouseEvent event(QEvent::MouseButtonRelease, QPoint(-1, -1), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    }
+    else
+    {
+        QMouseEvent event(QEvent::MouseButtonRelease, QPoint(-1, -1),
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
         QApplication::sendEvent(widget_, &event);
     }
 }
