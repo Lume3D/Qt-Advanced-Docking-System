@@ -24,6 +24,18 @@
 #    include <QOperatingSystemVersion>
 
 constexpr int FRAME_THICKNESS = 2;
+
+// Undocumented messages the default non-client painter sends; the
+// frameless window has to swallow them to stop it drawing a caption.
+#    ifndef WM_NCUAHDRAWCAPTION
+#        define WM_NCUAHDRAWCAPTION (0x00AE)
+#    endif
+#    ifndef WM_NCUAHDRAWFRAME
+#        define WM_NCUAHDRAWFRAME (0x00AF)
+#    endif
+
+// Window backdrop tint for the accent policy, as 0xAABBGGRR.
+constexpr DWORD kWindowBackdropGradient = 0xFF101010;
 #    define W_10                                                                 \
         (QSysInfo::productVersion().contains("10")                               \
          && QOperatingSystemVersion::current().microVersion() < 21327)

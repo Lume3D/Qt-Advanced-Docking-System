@@ -7,6 +7,8 @@
 #include "type_versions.h"
 
 class QMenu;
+class QPushButton;
+class WidgetEventHelper;
 
 #ifdef Q_OS_WIN
 struct tagMSG;
@@ -64,6 +66,8 @@ protected:
     void addIgnoreWidget(QWidget* widget);
     void setContentsMargins(const QMargins& margins);
     void setContentsMargins(int left, int top, int right, int bottom);
+    void initHintButton(QPushButton* button, const char* cssClass,
+                        WidgetEventHelper* helper);
     void constructHintButtons();
 
     bool nativeEvent(const QByteArray& eventType, void* message,

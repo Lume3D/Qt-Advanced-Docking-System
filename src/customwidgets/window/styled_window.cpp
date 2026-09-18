@@ -43,6 +43,16 @@ constexpr int kDarkModeRefreshDelayMs = 100;
 constexpr int kSystemMenuOffsetX = 4;
 constexpr int kSystemMenuOffsetY = 12;
 
+// Edge length of the maximize/restore glyph, in device-independent pixels.
+constexpr int kHintIconSize = 18;
+
+// The maximize button doubles as restore, so its glyph tracks window state.
+const char* maximizeIconPath(bool maximized)
+{
+    return maximized ? ":/icons/Icon_Restore_Window.svg" :
+                       ":/icons/Icon_Maximize_Window.svg";
+}
+
 HRESULT forceDarkMode(HWND hwnd)
 {
     BOOL value = TRUE;
@@ -475,10 +485,8 @@ bool StyledWindow::event(QEvent* event)
         syncWindowHintGeometry();
         if (d->maximize_)
         {
-            d->maximize_->setIcon(QIcon(!isMaximized() ?
-                                            ":/icons/Icon_Maximize_Window.svg" :
-                                            ":/icons/Icon_Restore_Window.svg")
-                                      .pixmap(18, 18));
+            d->maximize_->setIcon(QIcon(maximizeIconPath(isMaximized()))
+                                      .pixmap(kHintIconSize, kHintIconSize));
         }
     }
     if (event->type() == QEvent::WindowActivate)
@@ -618,6 +626,16 @@ void StyledWindow::addIgnoreWidget(QWidget* widget)
     d->whiteList_.append(widget);
 }
 
+// Applies the look and event wiring shared by every title-bar chrome button.
+void StyledWindow::initHintButton(QPushButton* button, const char* cssClass,
+                                  WidgetEventHelper* helper)
+{
+    button->setProperty("class", cssClass);
+    button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    button->setFocusPolicy(Qt::NoFocus);
+    helper->SetWidget(button);
+}
+
 void StyledWindow::constructHintButtons()
 {
     if (!d->rightLayoutWidget_)
@@ -639,11 +657,8 @@ void StyledWindow::constructHintButtons()
             {
                 auto minimizeIcon = QIcon(":/icons/Icon_Minimize_Window.svg");
                 d->minimize_ = new QPushButton(minimizeIcon, "", this);
-                d->minimize_->setProperty("class", "minimizeWindowBt");
-                d->minimize_->setSizePolicy(QSizePolicy::Fixed,
-                                            QSizePolicy::Expanding);
-                d->minimize_->setFocusPolicy(Qt::NoFocus);
-                d->minimizeHelper_->SetWidget(d->minimize_);
+                initHintButton(d->minimize_, "minimizeWindowBt",
+                               d->minimizeHelper_);
                 QObject::connect(d->minimize_, &QAbstractButton::released, this,
                                  [this]() {
                                      if (this->isOutOfWidget(d->minimize_))
@@ -670,15 +685,10 @@ void StyledWindow::constructHintButtons()
         {
             if (!d->maximize_)
             {
-                auto maximizeIcon = QIcon(this->isMaximized() ?
-                                              ":/icons/Icon_Restore_Window.svg" :
-                                              ":/icons/Icon_Maximize_Window.svg");
+                auto maximizeIcon = QIcon(maximizeIconPath(this->isMaximized()));
                 d->maximize_ = new QPushButton(maximizeIcon, "", this);
-                d->maximize_->setProperty("class", "maximizeWindowBt");
-                d->maximize_->setSizePolicy(QSizePolicy::Fixed,
-                                            QSizePolicy::Expanding);
-                d->maximize_->setFocusPolicy(Qt::NoFocus);
-                d->maximizeHelper_->SetWidget(d->maximize_);
+                initHintButton(d->maximize_, "maximizeWindowBt",
+                               d->maximizeHelper_);
 
                 QObject::connect(
                     d->maximize_, &QAbstractButton::released, this, [this]() {
@@ -720,11 +730,7 @@ void StyledWindow::constructHintButtons()
             {
                 auto closeIcon = QIcon(":/icons/Icon_Close_Window.svg");
                 d->close_ = new QPushButton(closeIcon, "", this);
-                d->close_->setProperty("class", "closeWindowBt");
-                d->close_->setSizePolicy(QSizePolicy::Fixed,
-                                         QSizePolicy::Expanding);
-                d->close_->setFocusPolicy(Qt::NoFocus);
-                d->closeHelper_->SetWidget(d->close_);
+                initHintButton(d->close_, "closeWindowBt", d->closeHelper_);
 
                 QObject::connect(d->close_, &QAbstractButton::released, this,
                                  [this]() {
@@ -1008,7 +1014,6 @@ QMenu* StyledWindow::createPopupMenu()
 
 void StyledWindow::initWindowBackground(bool transparent)
 {
-#    ifdef _WIN32
     HWND hwnd = (HWND)this->window()->winId();
     if (!d->backgroundBrush_)
     {
@@ -1029,20 +1034,17 @@ void StyledWindow::initWindowBackground(bool transparent)
 
         if (setWindowCompositionAttribute)
         {
-            DWORD gradient = 0xFF101010;
-
             ACCENT_POLICY accent = {transparent ?
                                         ACCENT_ENABLE_ACRYLICBLURBEHIND :
                                         ACCENT_ENABLE_GRADIENT,
                                     0, 0, 0};
-            accent.GradientColor = gradient;
+            accent.GradientColor = kWindowBackdropGradient;
 
             WINDOWCOMPOSITIONATTRIBDATA data{WCA_ACCENT_POLICY, &accent,
                                              sizeof(accent)};
             setWindowCompositionAttribute(hwnd, &data);
         }
     }
-#    endif
 }
 
 void StyledWindow::updateWindowFrameAttributes()
@@ -1088,14 +1090,6 @@ void StyledWindow::showFullScreen()
     }
     QMainWindow::showFullScreen();
 }
-
-#    ifndef WM_NCUAHDRAWCAPTION
-#        define WM_NCUAHDRAWCAPTION (0x00AE)
-#    endif
-
-#    ifndef WM_NCUAHDRAWFRAME
-#        define WM_NCUAHDRAWFRAME (0x00AF)
-#    endif
 
 void StyledWindow::showSystemMenu(QWidget* widget, const QPoint& pos)
 {
@@ -1262,23 +1256,21 @@ bool StyledWindow::onNcHitTest(tagMSG* msg, Q_RESULT_TYPE result)
         *result = HTCAPTION;
         return true;
     }
-    else
+
+    for (const auto& button : d->chromeButtons())
     {
-        for (const auto& button : d->chromeButtons())
+        if (button.helper && button.helper->Widget()
+            && button.helper->Widget() == child)
         {
-            if (button.helper && button.helper->Widget()
-                && button.helper->Widget() == child)
-            {
-                button.helper->SetWidgetRectFlag(true);
-                *result = button.hitTest;
-                return true;
-            }
-        }
-        if (d->whiteList_.contains(child))
-        {
-            *result = HTCAPTION;
+            button.helper->SetWidgetRectFlag(true);
+            *result = button.hitTest;
             return true;
         }
+    }
+    if (d->whiteList_.contains(child))
+    {
+        *result = HTCAPTION;
+        return true;
     }
     return false;
 }
