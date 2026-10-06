@@ -179,8 +179,6 @@ if(BUILD_ADS_STYLED_WINDOW)
         list(PREPEND ads_HEADERS
             customwidgets/window/macos_helper.h
         )
-
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -framework AppKit")
     endif()
 endif()
 
