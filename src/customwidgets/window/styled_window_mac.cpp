@@ -57,9 +57,15 @@ void StyledWindow::platformFilterToolBarEvent(QToolBar* toolBar, QEvent* event)
         auto* e = static_cast<QMouseEvent*>(event);
         if (e && e->button() == Qt::LeftButton)
         {
+#    if QT_VERSION_MAJOR >= 6
+            const QPointF localPos = e->position();
+#    else
+            const QPointF localPos = e->localPos();
+#    endif
             auto nonClientEvent =
-                QMouseEvent(QEvent::NonClientAreaMouseButtonPress, e->localPos(),
-                            e->button(), e->buttons(), e->modifiers());
+                QMouseEvent(QEvent::NonClientAreaMouseButtonPress, localPos,
+                            internal::globalPositionOf(e), e->button(),
+                            e->buttons(), e->modifiers());
             QApplication::sendEvent(this, &nonClientEvent);
         }
         if (e && !this->isActiveWindow())
