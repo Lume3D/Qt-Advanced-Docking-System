@@ -55,7 +55,10 @@ jobs:
           host: ${{ matrix.qt_host }}
           arch: ${{ matrix.qt_arch }}
           cache: true
-          setup-python: false
+          # The action installs aqtinstall with pip. Let it set up its own
+          # Python: the macOS runner's Homebrew Python refuses pip installs
+          # (PEP 668, "externally-managed-environment").
+          setup-python: true
 
       # BUILD_ADS_STYLED_WINDOW only adds the sources. The defines are what
       # an application sets to use them, and they switch on the styled window
