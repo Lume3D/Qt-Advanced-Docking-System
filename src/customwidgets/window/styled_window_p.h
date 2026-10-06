@@ -7,12 +7,12 @@
 
 #include <QPointer>
 
-#include <array>
-
 #include "styled_window.h"
 #include "utils.h"
 
 #ifdef Q_OS_WIN
+#    include <array>
+
 #    include "widget_event_helper.h"
 #    include "win_utils.h"
 #endif
@@ -42,6 +42,11 @@ struct StyledWindow::StyledWindowPrivate
     bool justMaximized_{false};
     bool justMinimized_{false};
     bool resizeable_{true};
+
+    float displayScale_{1.f};
+
+#ifdef Q_OS_WIN
+    bool initResize_{false};
 
     WidgetEventHelper* maximizeHelper_{nullptr};
     WidgetEventHelper* minimizeHelper_{nullptr};
@@ -82,11 +87,7 @@ struct StyledWindow::StyledWindowPrivate
         }
         return nullptr;
     }
-    float displayScale_{1.f};
 
-    bool initResize_{false};
-
-#ifdef Q_OS_WIN
     QWindow* proxyWindow_{nullptr};
     HMENU sysMenu_{nullptr};
     HBRUSH backgroundBrush_{nullptr};
