@@ -1,0 +1,76 @@
+# ---------------------------------------------------------------------------
+# Styled Window Build Workflow (fork addition, not in upstream ADS)
+#
+# The upstream workflows build ADS with its default options, which leave
+# BUILD_ADS_STYLED_WINDOW off, so the fork's styled window sources in
+# src/customwidgets/window are never compiled by them. Build them on the
+# platforms that use them, Windows and macOS, where each compiles its own
+# platform implementation next to the shared styled_window.cpp.
+#
+# This lives in its own file so that upstream changes to the other
+# workflows merge without conflicts. It uses CMake's default generator on
+# each platform (Visual Studio, Unix Makefiles), so nothing beyond Qt has
+# to be installed.
+# ---------------------------------------------------------------------------
+
+name: styled-window-builds
+
+on:
+  push:
+  workflow_dispatch:
+
+# The job only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Styled window on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        include:
+          - name: Windows (MSVC)
+            os: windows-2022
+            qt_host: windows
+            qt_arch: win64_msvc2022_64
+          - name: macOS
+            os: macos-14
+            qt_host: mac
+            qt_arch: clang_64
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      # Sets QT_ROOT_DIR to the installed Qt.
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.8.3
+          target: desktop
+          host: ${{ matrix.qt_host }}
+          arch: ${{ matrix.qt_arch }}
+          cache: true
+          setup-python: false
+
+      # BUILD_ADS_STYLED_WINDOW only adds the sources. The defines are what
+      # an application sets to use them, and they switch on the styled window
+      # paths in FloatingDockContainer.
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_ADS_STYLED_WINDOW=ON \
+            -DCMAKE_CXX_FLAGS_INIT="-DADS_STYLED_WINDOW -DADS_FLOATING_MAINWINDOW=1"
+
+      # --config selects Release for the multi-config Visual Studio generator.
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --parallel
