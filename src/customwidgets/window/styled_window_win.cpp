@@ -251,9 +251,14 @@ void StyledWindow::setContentsMargins(int left, int top, int right, int bottom)
 
 void StyledWindow::syncWindowHintGeometry()
 {
-    ::SetWindowPos((HWND)this->winId(), nullptr, 0, 0, 0, 0,
-                   SWP_NOMOVE | SWP_NOZORDER | SWP_NOSIZE | SWP_NOOWNERZORDER
-                       | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    // Don't create the native window from here (see ScreenChangeInternal in
+    // event()).
+    if (const auto hwnd = reinterpret_cast<HWND>(this->internalWinId()))
+    {
+        ::SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                       SWP_NOMOVE | SWP_NOZORDER | SWP_NOSIZE | SWP_NOOWNERZORDER
+                           | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+    }
 #    if QT_VERSION_MAJOR >= 6
     if (!d->windowHint_)
     {
@@ -366,6 +371,10 @@ void StyledWindow::queueRestoreClientFocus()
 
 void StyledWindow::updateWindowDpr(float dpr, QRect rect, WId wid)
 {
+    if (!wid)
+    {
+        return;
+    }
     d->displayScale_ = dpr;
     {
         SetWindowPos((HWND)wid, NULL, rect.left(), rect.top(), rect.width(),
@@ -1297,7 +1306,10 @@ void StyledWindow::platformHandleEvent(QEvent* event)
                 Qt::QueuedConnection);
         }
     }
-    if (event->type() == QEvent::ScreenChangeInternal)
+    // ScreenChangeInternal is also sent from inside QWindow::create() before the
+    // platform window exists; forcing a winId() there creates a second, orphaned
+    // native window. Only react once the native window is in place.
+    if (event->type() == QEvent::ScreenChangeInternal && internalWinId())
     {
         RECT rect;
         const auto hwnd = reinterpret_cast<HWND>(this->effectiveWinId());
