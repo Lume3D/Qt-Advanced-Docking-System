@@ -79,6 +79,7 @@ private:
 	friend struct FloatingDockContainerPrivate;
 	friend class CDockWidget;
 	friend class CFloatingDragPreview;
+	friend struct DockWidgetPrivate;
 	friend struct FloatingDragPreviewPrivate;
 	friend CAutoHideDockContainer;
 	friend CAutoHideTab;
@@ -147,6 +148,13 @@ protected:
 	 * Access function for the internal root splitter
 	 */
 	CDockSplitter* rootSplitter() const;
+
+	/**
+	 * Updates the title bars of the opened dock areas and the handles of the
+	 * dock splitters, so that a hidden container is laid out once when it is
+	 * shown, at its final size
+	 */
+	void prepareToShow();
 
 	/**
 	 * Creates and initializes a dockwidget auto hide container into the given area.

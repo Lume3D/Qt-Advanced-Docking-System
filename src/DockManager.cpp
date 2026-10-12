@@ -158,6 +158,29 @@ struct DockManagerPrivate
 	void restoreDockWidgetsOpenState();
 	void restoreDockAreasIndices();
 	void emitTopLevelEvents();
+	void showRestoredFloatingWidgets();
+
+	// Shows a floating widget, laid out once at its final size, if it has an
+	// open dock area or auto hide widget. Not the ones a restore detached from
+	// the dock manager, to be deleted
+	static void showFloatingWidget(CFloatingDockContainer* FloatingWidget)
+	{
+		auto Container = FloatingWidget ? FloatingWidget->dockContainer() : nullptr;
+		if (!Container || !Container->dockManager())
+		{
+			return;
+		}
+		bool HasOpenContent = Container->hasOpenDockAreas();
+		for (auto AutoHideWidget : Container->autoHideWidgets())
+		{
+			HasOpenContent |= !AutoHideWidget->dockWidget()->isClosed();
+		}
+		if (HasOpenContent)
+		{
+			Container->prepareToShow();
+			FloatingWidget->show();
+		}
+	}
 
 	void hideFloatingWidgets()
 	{
@@ -410,6 +433,20 @@ void DockManagerPrivate::restoreDockWidgetsOpenState()
 
 
 //============================================================================
+void DockManagerPrivate::showRestoredFloatingWidgets()
+{
+	// The floating widgets are shown once all dock widgets are open, so each
+	// window is laid out once. A copy, because show() runs slots that may add
+	// or remove floating widgets
+	auto Widgets = FloatingWidgets;
+	for (auto FloatingWidget : Widgets)
+	{
+		showFloatingWidget(FloatingWidget);
+	}
+}
+
+
+//============================================================================
 void DockManagerPrivate::restoreDockAreasIndices()
 {
     // Now all dock areas are properly restored and we setup the index of
@@ -496,6 +533,7 @@ bool DockManagerPrivate::restoreState(const QByteArray& State, int version)
     restoreDockWidgetsOpenState();
     restoreDockAreasIndices();
     emitTopLevelEvents();
+    showRestoredFloatingWidgets();
     _this->dumpLayout();
 
     return true;
@@ -980,12 +1018,9 @@ void CDockManager::showEvent(QShowEvent *event)
 
 	for (auto FloatingWidget : d->UninitializedFloatingWidgets)
 	{
-		// Check, if someone closed a floating dock widget before the dock
-		// manager is shown
-		if (FloatingWidget->dockContainer()->hasOpenDockAreas())
-		{
-			FloatingWidget->show();
-		}
+		// Not, if someone closed a floating dock widget before the dock manager
+		// is shown
+		DockManagerPrivate::showFloatingWidget(FloatingWidget);
 	}
 	d->UninitializedFloatingWidgets.clear();
 }
