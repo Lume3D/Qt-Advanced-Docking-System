@@ -200,12 +200,17 @@ void DockWidgetPrivate::showDockWidget()
 			Splitter = internal::findParent<CDockSplitter*>(Splitter);
 		}
 
+		// While restoring, restoreState() shows the floating windows once all
+		// of their dock widgets are open
 		CDockContainerWidget* Container = DockArea->dockContainer();
-		if (Container->isFloating())
+		if (Container->isFloating() && !DockManager->isRestoringState())
 		{
-			CFloatingDockContainer* FloatingWidget = internal::findParent<
-					CFloatingDockContainer*>(Container);
-			FloatingWidget->show();
+			auto FloatingWidget = internal::findParent<CFloatingDockContainer*>(Container);
+			if (!FloatingWidget->isVisible())
+			{
+				Container->prepareToShow();
+				FloatingWidget->show();
+			}
 		}
 
         // If this widget is pinned and there are no opened dock widgets, unpin the auto hide widget by moving it's contents to parent container

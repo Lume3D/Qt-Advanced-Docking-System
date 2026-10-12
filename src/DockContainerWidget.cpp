@@ -2155,6 +2155,40 @@ bool CDockContainerWidget::restoreState(CDockingStateReader& s, bool Testing)
 
 
 //============================================================================
+static void updateDockSplitterHandles(QSplitter* Splitter)
+{
+	if (!Splitter)
+	{
+		return;
+	}
+	// The layout request a splitter has pending: it updates the handles, and
+	// leaves the sizes alone while the splitter is hidden
+	QEvent LayoutRequest(QEvent::LayoutRequest);
+	QCoreApplication::sendEvent(Splitter, &LayoutRequest);
+	for (int i = 0; i < Splitter->count(); ++i)
+	{
+		if (auto Child = qobject_cast<CDockSplitter*>(Splitter->widget(i)))
+		{
+			updateDockSplitterHandles(Child);
+		}
+	}
+}
+
+
+//============================================================================
+void CDockContainerWidget::prepareToShow()
+{
+	for (auto DockArea : openedDockAreas())
+	{
+		DockArea->updateTitleBarVisibility();
+	}
+	// A splitter shows a handle it hid while its areas were hidden only in a
+	// layout pass, which a hidden container gets after it is shown
+	updateDockSplitterHandles(rootSplitter());
+}
+
+
+//============================================================================
 CDockSplitter* CDockContainerWidget::rootSplitter() const
 {
 	return d->RootSplitter;
