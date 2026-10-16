@@ -821,6 +821,12 @@ public Q_SLOTS:
      */
     void raise();
 
+    /**
+     * Prepares the dock areas and splitters to show before it shows the dock
+     * manager, like a floating container is before it is shown
+     */
+    virtual void setVisible(bool visible) override;
+
 Q_SIGNALS:
 	/**
 	 * This signal is emitted if the list of perspectives changed.
