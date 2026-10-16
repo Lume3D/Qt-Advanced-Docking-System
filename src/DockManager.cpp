@@ -1003,6 +1003,18 @@ CFloatingDockContainer* CDockManager::addDockWidgetFloating(CDockWidget* Dockwid
 	return FloatingWidget;
 }
 
+//============================================================================
+void CDockManager::setVisible(bool visible)
+{
+    // Like a floating container (see showFloatingWidget()), the docked widgets'
+    // container settles its title bars and splitter handles before it is shown,
+    // so they are laid out once, at their final sizes
+    if (visible && !isVisible())
+    {
+        prepareToShow();
+    }
+    Super::setVisible(visible);
+}
 
 //============================================================================
 void CDockManager::showEvent(QShowEvent *event)
